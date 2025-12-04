@@ -1,0 +1,7 @@
+{
+  "name": "Gemini Realtime Assistant",
+  "description": "A full-duplex voice assistant using Gemini Live API via a custom Node.js gateway with n8n integration.",
+  "requestFramePermissions": [
+    "microphone"
+  ]
+}

@@ -1,0 +1,47 @@
+{
+  "name": "NexoraAI Workflow",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "gemini-action",
+        "responseMode": "lastNode",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [
+        250,
+        300
+      ],
+      "id": "webhook-trigger",
+      "name": "Webhook (JSON Input)"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Input: { text: \"User speech\" }\nconst userText = $input.body.text;\n\n// TODO: Connect to AI Agent or LLM here to generate text response\n// TODO: Connect to TTS (Text-to-Speech) service here\n\n// For demo purposes, we return a mock binary or just JSON if you haven't set up TTS yet.\n// Real implementation needs to return binary audio data.\n\nreturn {\n  json: {\n    processedText: `I heard you say: ${userText}`,\n    status: \"success\"\n  }\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        450,
+        300
+      ],
+      "id": "process-text",
+      "name": "Process & TTS"
+    }
+  ],
+  "connections": {
+    "Webhook (JSON Input)": {
+      "main": [
+        [
+          {
+            "node": "Process & TTS",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  }
+}
