@@ -7,7 +7,7 @@ const WEBHOOK_URL = process.env.REACT_APP_N8N_WEBHOOK_URL;
 
 const AGENT_MESSAGES = [
   "Encrypting audio stream...",
-  "Handshaking with Neural Core..."
+  "Handshaking with Neural Core...",
   "Agent V: Parsing intent...",
   "Agent X: Retrieving context...",
   "Running semantic analysis...",
