@@ -171,6 +171,11 @@ export const useRealtimeVoice = (webhookUrl: string): UseVoiceReturn => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ text: text }),
       });
+      // در فایل useRealtimeVoice.ts و داخل تابع sendTextToWebhook
+
+      const text = await response.text(); // اول متن رو بگیر
+      console.log("RAW SERVER RESPONSE:", text); // اینو تو کنسول ببین
+// ... بقیه کد رو فعلا کامنت کن تا ارور نده
 
       if (!response.ok) throw new Error(`Webhook failed: ${response.statusText}`);
 
