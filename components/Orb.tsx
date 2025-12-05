@@ -23,51 +23,51 @@ interface VisualConfig {
 const STATE_CONFIGS: Record<string, VisualConfig> = {
   idle: {
     baseRadius: 80,
-    noiseSpeed: 0.005,
+    noiseSpeed: 0.005, // Slow drift
     noiseFreq: 3,
     noiseAmpBase: 5,
     color1: '#3b82f6', // Blue-500
     color2: '#8b5cf6', // Violet-500
     ringAlpha: 0,
     particleAlpha: 0,
-    pulseSpeed: 0.02,
+    pulseSpeed: 0.02, // Slow breathing
     pulseAmp: 4,
   },
   listening: {
     baseRadius: 90,
-    noiseSpeed: 0.02,
-    noiseFreq: 4,
-    noiseAmpBase: 10,
+    noiseSpeed: 0.15, // Fast jitter
+    noiseFreq: 12, // More spikes (Waveform look)
+    noiseAmpBase: 20, // Distinct shape
     color1: '#f472b6', // Pink-400
     color2: '#a855f7', // Purple-500
-    ringAlpha: 0,
-    particleAlpha: 0,
-    pulseSpeed: 0.05,
-    pulseAmp: 5,
+    ringAlpha: 0.2, // Faint outer ring
+    particleAlpha: 0.1,
+    pulseSpeed: 0.1,
+    pulseAmp: 10,
   },
   processing: {
-    baseRadius: 70,
-    noiseSpeed: 0.04,
-    noiseFreq: 15, // High frequency for "thinking"
+    baseRadius: 75,
+    noiseSpeed: 0.05,
+    noiseFreq: 25, // High frequency "thinking"
     noiseAmpBase: 3,
     color1: '#10b981', // Emerald-500
     color2: '#06b6d4', // Cyan-500
     ringAlpha: 1,    // Show rings
     particleAlpha: 1, // Show data particles
-    pulseSpeed: 0.1,
-    pulseAmp: 3,
+    pulseSpeed: 0.15,
+    pulseAmp: 2,
   },
   playing: {
     baseRadius: 85,
-    noiseSpeed: 0.01,
-    noiseFreq: 6,
-    noiseAmpBase: 8,
-    color1: '#3b82f6', // Blue-500
-    color2: '#6366f1', // Indigo-500
+    noiseSpeed: 0.02,
+    noiseFreq: 4,
+    noiseAmpBase: 15,
+    color1: '#60a5fa', // Blue-400
+    color2: '#818cf8', // Indigo-400
     ringAlpha: 0,
     particleAlpha: 0,
-    pulseSpeed: 0.04,
-    pulseAmp: 10,
+    pulseSpeed: 0.05,
+    pulseAmp: 8,
   },
 };
 
@@ -93,7 +93,7 @@ const rgbToString = (rgb: number[]) => `rgb(${Math.round(rgb[0])}, ${Math.round(
 
 const Orb: React.FC<OrbProps> = ({ level, state }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  
+
   // Mutable state for the animation loop to hold current interpolated values
   const current = useRef({
     radius: 80,
@@ -115,7 +115,7 @@ const Orb: React.FC<OrbProps> = ({ level, state }) => {
 
     // High DPI setup
     const dpr = window.devicePixelRatio || 1;
-    const size = 320; 
+    const size = 320;
     canvas.width = size * dpr;
     canvas.height = size * dpr;
     ctx.scale(dpr, dpr);
@@ -135,25 +135,25 @@ const Orb: React.FC<OrbProps> = ({ level, state }) => {
       // Dynamic overrides based on audio level
       if (state === 'listening') {
         // Expand and distort based on volume
-        targetRadius += level * 60; 
-        targetNoiseAmp += level * 50; 
+        targetRadius += level * 60;
+        targetNoiseAmp += level * 50;
 
         // Shift color to Red/Amber if loud
         if (level > 0.4) {
-           targetColor1 = hexToRgb('#ef4444'); // Red
-           targetColor2 = hexToRgb('#f59e0b'); // Amber
+          targetColor1 = hexToRgb('#ef4444'); // Red
+          targetColor2 = hexToRgb('#f59e0b'); // Amber
         }
       }
 
       // 2. Interpolate (Lerp) towards targets for smoothness
       // Factor determines speed of transition (0.1 = fast, 0.02 = slow)
-      const smoothFactor = 0.08; 
+      const smoothFactor = 0.08;
 
       cur.radius = lerp(cur.radius, targetRadius, smoothFactor);
       cur.noiseAmp = lerp(cur.noiseAmp, targetNoiseAmp, smoothFactor);
       cur.ringAlpha = lerp(cur.ringAlpha, config.ringAlpha, 0.05);
       cur.particleAlpha = lerp(cur.particleAlpha, config.particleAlpha, 0.05);
-      
+
       cur.color1 = lerpArray(cur.color1, targetColor1, smoothFactor);
       cur.color2 = lerpArray(cur.color2, targetColor2, smoothFactor);
 
@@ -164,7 +164,7 @@ const Orb: React.FC<OrbProps> = ({ level, state }) => {
       cur.time += timeSpeed;
 
       // --- DRAWING ---
-      
+
       const cx = size / 2;
       const cy = size / 2;
       const t = cur.time;
@@ -198,7 +198,7 @@ const Orb: React.FC<OrbProps> = ({ level, state }) => {
       const points = 100;
       for (let i = 0; i <= points; i++) {
         const angle = (Math.PI * 2 * i) / points;
-        
+
         // Noise Function
         // Combine low freq sine (shape) and high freq cos (texture)
         const wave1 = Math.sin(angle * 3 + t * config.noiseFreq * 0.2); // Morph
@@ -207,14 +207,14 @@ const Orb: React.FC<OrbProps> = ({ level, state }) => {
 
         // Apply amplitude
         const noise = (wave1 + wave2 + wave3) * (cur.noiseAmp / 3);
-        
+
         // Add Pulse
         const pulse = Math.sin(t * config.pulseSpeed * 100) * config.pulseAmp;
 
         const r = cur.radius + noise + pulse;
         const x = cx + Math.cos(angle) * r;
         const y = cy + Math.sin(angle) * r;
-        
+
         if (i === 0) ctx.moveTo(x, y);
         else ctx.lineTo(x, y);
       }
@@ -245,7 +245,7 @@ const Orb: React.FC<OrbProps> = ({ level, state }) => {
         ctx.beginPath();
         ctx.arc(0, 0, ringR, 2.0, 3.2);
         ctx.stroke();
-        
+
         // Inner Ring
         ctx.rotate(-t * 3); // counter rotate
         ctx.strokeStyle = 'rgba(6, 182, 212, 0.3)';
@@ -254,7 +254,7 @@ const Orb: React.FC<OrbProps> = ({ level, state }) => {
         ctx.beginPath();
         ctx.arc(0, 0, ringR - 12, 0, Math.PI * 2);
         ctx.stroke();
-        
+
         ctx.restore();
       }
 
@@ -263,37 +263,37 @@ const Orb: React.FC<OrbProps> = ({ level, state }) => {
         ctx.globalAlpha = cur.particleAlpha;
         const pCount = 8;
         for (let p = 0; p < pCount; p++) {
-           const offset = (p * (Math.PI * 2)) / pCount;
-           const pTime = (t * 1.5 + offset) % 2; 
-           const dist = 130 * (1 - (pTime / 2));
-           
-           if (dist > 35) {
-             const angle = offset + t * 0.5;
-             const px = cx + Math.cos(angle) * dist;
-             const py = cy + Math.sin(angle) * dist;
-             ctx.beginPath();
-             ctx.fillStyle = `rgba(167, 243, 208, ${dist/130})`;
-             ctx.arc(px, py, 2, 0, Math.PI * 2);
-             ctx.fill();
-           }
+          const offset = (p * (Math.PI * 2)) / pCount;
+          const pTime = (t * 1.5 + offset) % 2;
+          const dist = 130 * (1 - (pTime / 2));
+
+          if (dist > 35) {
+            const angle = offset + t * 0.5;
+            const px = cx + Math.cos(angle) * dist;
+            const py = cy + Math.sin(angle) * dist;
+            ctx.beginPath();
+            ctx.fillStyle = `rgba(167, 243, 208, ${dist / 130})`;
+            ctx.arc(px, py, 2, 0, Math.PI * 2);
+            ctx.fill();
+          }
         }
         ctx.globalAlpha = 1;
       }
 
       // F. Playback Waves (Playing)
       if (state === 'playing') {
-          const waveCount = 3;
-          for (let w = 0; w < waveCount; w++) {
-             const cycle = (t * 0.6 + w * 0.4) % 1;
-             const waveR = cur.radius + (cycle * 60);
-             const alpha = (1 - cycle) * 0.4;
-             
-             ctx.beginPath();
-             ctx.strokeStyle = `rgba(147, 197, 253, ${alpha})`;
-             ctx.lineWidth = 1.5;
-             ctx.arc(cx, cy, waveR, 0, Math.PI * 2);
-             ctx.stroke();
-          }
+        const waveCount = 3;
+        for (let w = 0; w < waveCount; w++) {
+          const cycle = (t * 0.6 + w * 0.4) % 1;
+          const waveR = cur.radius + (cycle * 60);
+          const alpha = (1 - cycle) * 0.4;
+
+          ctx.beginPath();
+          ctx.strokeStyle = `rgba(147, 197, 253, ${alpha})`;
+          ctx.lineWidth = 1.5;
+          ctx.arc(cx, cy, waveR, 0, Math.PI * 2);
+          ctx.stroke();
+        }
       }
 
       requestRef.current = requestAnimationFrame(animate);
@@ -307,8 +307,8 @@ const Orb: React.FC<OrbProps> = ({ level, state }) => {
   }, [level, state]);
 
   return (
-    <canvas 
-      ref={canvasRef} 
+    <canvas
+      ref={canvasRef}
       className="transition-transform duration-300 ease-out pointer-events-none"
     />
   );

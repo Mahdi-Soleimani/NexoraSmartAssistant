@@ -8,7 +8,7 @@ import { GoogleGenAI, LiveServerMessage } from '@google/genai';
  */
 const PORT = 8080;
 const API_KEY = process.env.API_KEY || ''; // MUST be set in environment
-const N8N_WEBHOOK_URL = (import.meta as any).env?.VITE_N8N_WEBHOOK_URL || 'https://50356-4vb9a.s3.irann8n.com/webhook/0c98ae44-713b-47c8-8c28-f39ac0e23f12'; // MUST be set in environment
+const N8N_WEBHOOK_URL = (import.meta as any).env?.VITE_N8N_WEBHOOK_URL || ''; // MUST be set in environment
 const MODEL = 'gemini-2.5-flash-native-audio-preview-09-2025';
 
 // Define the automation tool for n8n
