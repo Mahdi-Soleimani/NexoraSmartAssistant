@@ -161,7 +161,7 @@ export const useRealtimeVoice = (webhookUrl: string): UseVoiceReturn => {
 
   const sendTextToWebhook = async (text: string) => {
     setIsProcessing(true);
-    setAudioLevel(0.5); // Set a steady level for "Processing" animation
+    setAudioLevel(0.5); 
     
     try {
       if (!webhookUrl) throw new Error("Webhook URL is missing");
@@ -171,16 +171,21 @@ export const useRealtimeVoice = (webhookUrl: string): UseVoiceReturn => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ text: text }),
       });
-      // در فایل useRealtimeVoice.ts و داخل تابع sendTextToWebhook
 
-      const responseText = await response.text(); // اول متن رو بگیر
-      console.log("RAW SERVER RESPONSE:", responseText); // اینو تو کنسول ببین
-// ... بقیه کد رو فعلا کامنت کن تا ارور نده
+      if (!response.ok) {
+        throw new Error(`Webhook failed: ${response.statusText}`);
+      }
 
-      if (!response.ok) throw new Error(`Webhook failed: ${response.statusText}`);
+      // 1. دریافت مستقیم فایل به صورت Blob
+      const rawBlob = await response.blob();
+      console.log("Audio received. Size:", rawBlob.size);
 
-      const responseBlob = await response.blob();
-      playResponseAudio(responseBlob);
+      // 2. ساخت مجدد Blob با اجبار کردن فرمت صوتی
+      // این کار ارور NotSupportedError مرورگر را حل می‌کند اگر هدر سرور اشتباه باشد
+      const audioBlob = new Blob([rawBlob], { type: 'audio/mpeg' });
+      
+      // 3. پخش صدا
+      playResponseAudio(audioBlob);
 
     } catch (err: any) {
       console.error("Processing error:", err);
