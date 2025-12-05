@@ -175,22 +175,29 @@ export const useRealtimeVoice = (webhookUrl: string): UseVoiceReturn => {
 
     setError(null);
     try {
-      // 1. Start Microphone for Visualization (AudioContext)
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      streamRef.current = stream;
+      // 0. Detect Mobile (Simple UA check)
+      const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
 
-      const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
-      const audioCtx = new AudioContextClass();
-      audioContextRef.current = audioCtx;
+      if (!isMobile) {
+        // 1. Start Microphone for Visualization (AudioContext) - DESKTOP ONLY
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        streamRef.current = stream;
 
-      const analyser = audioCtx.createAnalyser();
-      analyser.fftSize = 256;
-      analyserRef.current = analyser;
+        const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+        const audioCtx = new AudioContextClass();
+        audioContextRef.current = audioCtx;
 
-      const source = audioCtx.createMediaStreamSource(stream);
-      source.connect(analyser);
+        const analyser = audioCtx.createAnalyser();
+        analyser.fftSize = 256;
+        analyserRef.current = analyser;
 
-      analyzeAudioLevel();
+        const source = audioCtx.createMediaStreamSource(stream);
+        source.connect(analyser);
+
+        analyzeAudioLevel();
+      } else {
+        console.warn("Mobile device detected: Visualizer disabled to ensure Speech Recognition reliability.");
+      }
 
       // 2. Start Speech Recognition
       if (recognitionRef.current) {
@@ -218,6 +225,9 @@ export const useRealtimeVoice = (webhookUrl: string): UseVoiceReturn => {
 
     } catch (err: any) {
       console.error("Error accessing microphone:", err);
+      // If desktop fails visuals, we might still be able to do speech, but usually permission is global.
+      // However, if it was a getUserMedia error on desktop, we should probably stop.
+      // On mobile, we bypassed getUserMedia, so we won't catch here unless logic above fails.
       setError("Microphone access denied.");
       setIsListening(false);
     }
