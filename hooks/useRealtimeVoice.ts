@@ -40,8 +40,6 @@ export const useRealtimeVoice = (webhookUrl: string): UseVoiceReturn => {
       };
 
       recognition.onend = () => {
-        // Only stop if we are not processing (results handled separately)
-        // logic handled in onresult mainly, but this catches silence timeouts
         if (isListening && !isProcessing) {
              stopInteraction();
         }
@@ -86,16 +84,15 @@ export const useRealtimeVoice = (webhookUrl: string): UseVoiceReturn => {
   const cleanup = () => {
     if (timerRef.current) clearTimeout(timerRef.current);
     if (simulationFrameRef.current) cancelAnimationFrame(simulationFrameRef.current);
-    if (audioPlayerRef.current) audioPlayerRef.current.pause();
+    if (audioPlayerRef.current) {
+      try { audioPlayerRef.current.pause(); } catch(e) { /* ignore */ }
+    }
   };
 
-  // Simulates organic audio levels for the visualizer since we can't 
-  // use AudioContext + SpeechRecognition simultaneously on mobile.
   const startSimulation = () => {
     let t = 0;
     const update = () => {
       t += 0.1;
-      // Create a "breathing" random noise pattern
       const noise = Math.random() * 0.5;
       const sine = (Math.sin(t) + 1) / 2; // 0 to 1
       const level = 0.2 + (noise * 0.4) + (sine * 0.2); 
@@ -117,12 +114,10 @@ export const useRealtimeVoice = (webhookUrl: string): UseVoiceReturn => {
 
     try {
       if (recognitionRef.current) {
-        // Start Recognition
         try {
             recognitionRef.current.start();
         } catch (e) {
             console.warn("Recognition already active", e);
-            // If already active, just ensure state is correct
             setIsListening(true);
             startSimulation();
             return;
@@ -162,6 +157,7 @@ export const useRealtimeVoice = (webhookUrl: string): UseVoiceReturn => {
   const sendTextToWebhook = async (text: string) => {
     setIsProcessing(true);
     setAudioLevel(0.5); // Set a steady level for "Processing" animation
+    setError(null);
     
     try {
       if (!webhookUrl) throw new Error("Webhook URL is missing");
@@ -172,14 +168,33 @@ export const useRealtimeVoice = (webhookUrl: string): UseVoiceReturn => {
         body: JSON.stringify({ text: text }),
       });
 
-      if (!response.ok) throw new Error(`Webhook failed: ${response.statusText}`);
+      console.debug('Webhook response status:', response.status);
+      const contentType = response.headers.get('content-type') || '';
+      console.debug('Webhook content-type:', contentType);
+
+      if (!response.ok) {
+        // try to read body for clearer message
+        const textBody = await response.text().catch(() => '');
+        throw new Error(`Webhook returned ${response.status}: ${textBody || response.statusText}`);
+      }
+
+      // If server didn't return audio, show error with server message
+      if (!contentType.startsWith('audio/')) {
+        // try read text (maybe it's JSON error)
+        const textBody = await response.text().catch(() => '');
+        console.error('Expected audio but got:', contentType, textBody);
+        throw new Error(`Webhook did not return audio. (${contentType})`);
+      }
 
       const responseBlob = await response.blob();
+      console.debug('Received blob', responseBlob.type, responseBlob.size);
+      if (responseBlob.size === 0) throw new Error('Received empty audio payload.');
+
       playResponseAudio(responseBlob);
 
     } catch (err: any) {
       console.error("Processing error:", err);
-      setError("Connection to NexoraAI failed.");
+      setError(err?.message || "Connection to NexoraAI failed.");
       setIsProcessing(false);
       setAudioLevel(0);
     }
@@ -188,10 +203,16 @@ export const useRealtimeVoice = (webhookUrl: string): UseVoiceReturn => {
   const playResponseAudio = (blob: Blob) => {
     const audioUrl = URL.createObjectURL(blob);
     const audio = new Audio(audioUrl);
+    audio.crossOrigin = 'anonymous';
     audioPlayerRef.current = audio;
 
+    // When audio can play, stop "processing" UI and start visual sim
+    audio.oncanplay = () => {
+      setIsProcessing(false);
+      // DO NOT set isPlaying true here — we will set it after successful play()
+    };
+
     audio.onplay = () => {
-        setIsProcessing(false);
         setIsPlaying(true);
         // Animate for playback
         startSimulation(); 
@@ -201,7 +222,7 @@ export const useRealtimeVoice = (webhookUrl: string): UseVoiceReturn => {
       setIsPlaying(false);
       if (simulationFrameRef.current) cancelAnimationFrame(simulationFrameRef.current);
       setAudioLevel(0);
-      URL.revokeObjectURL(audioUrl);
+      try { URL.revokeObjectURL(audioUrl); } catch(e) { /* ignore */ }
     };
 
     audio.onerror = (e) => {
@@ -209,9 +230,24 @@ export const useRealtimeVoice = (webhookUrl: string): UseVoiceReturn => {
       setError("Could not play response.");
       setIsProcessing(false);
       setIsPlaying(false);
+      try { URL.revokeObjectURL(audioUrl); } catch(e) { /* ignore */ }
     };
 
-    audio.play();
+    // handle autoplay policy / promise rejection
+    const playPromise = audio.play();
+    if (playPromise && typeof playPromise.then === 'function') {
+      playPromise.then(() => {
+        // playback started successfully
+        setIsProcessing(false);
+        // isPlaying will be set in onplay
+      }).catch((playErr: any) => {
+        console.error('Playback was blocked or failed:', playErr);
+        setError('Browser blocked audio playback. Please tap to play the response.');
+        setIsProcessing(false);
+        setIsPlaying(false);
+        // keep the object URL so user can manually trigger play if desired
+      });
+    }
   };
 
   return {
