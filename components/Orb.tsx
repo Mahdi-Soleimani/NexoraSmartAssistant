@@ -5,107 +5,52 @@ interface OrbProps {
   state: 'idle' | 'listening' | 'processing' | 'playing';
 }
 
-// --- CONFIGURATION ---
-
-interface VisualConfig {
-  baseRadius: number;
-  noiseSpeed: number;
-  noiseFreq: number;
-  noiseAmpBase: number;
-  color1: string;
-  color2: string;
-  ringAlpha: number;
-  particleAlpha: number;
-  pulseSpeed: number;
-  pulseAmp: number;
+interface Point3D {
+  x: number;
+  y: number;
+  z: number;
+  baseX: number;
+  baseY: number;
+  baseZ: number;
 }
-
-const STATE_CONFIGS: Record<string, VisualConfig> = {
-  idle: {
-    baseRadius: 80,
-    noiseSpeed: 0.005, // Slow drift
-    noiseFreq: 3,
-    noiseAmpBase: 5,
-    color1: '#3b82f6', // Blue-500
-    color2: '#8b5cf6', // Violet-500
-    ringAlpha: 0,
-    particleAlpha: 0,
-    pulseSpeed: 0.02, // Slow breathing
-    pulseAmp: 4,
-  },
-  listening: {
-    baseRadius: 90,
-    noiseSpeed: 0.15, // Fast jitter
-    noiseFreq: 12, // More spikes (Waveform look)
-    noiseAmpBase: 20, // Distinct shape
-    color1: '#f472b6', // Pink-400
-    color2: '#a855f7', // Purple-500
-    ringAlpha: 0.2, // Faint outer ring
-    particleAlpha: 0.1,
-    pulseSpeed: 0.1,
-    pulseAmp: 10,
-  },
-  processing: {
-    baseRadius: 75,
-    noiseSpeed: 0.05,
-    noiseFreq: 25, // High frequency "thinking"
-    noiseAmpBase: 3,
-    color1: '#10b981', // Emerald-500
-    color2: '#06b6d4', // Cyan-500
-    ringAlpha: 1,    // Show rings
-    particleAlpha: 1, // Show data particles
-    pulseSpeed: 0.15,
-    pulseAmp: 2,
-  },
-  playing: {
-    baseRadius: 85,
-    noiseSpeed: 0.02,
-    noiseFreq: 4,
-    noiseAmpBase: 15,
-    color1: '#60a5fa', // Blue-400
-    color2: '#818cf8', // Indigo-400
-    ringAlpha: 0,
-    particleAlpha: 0,
-    pulseSpeed: 0.05,
-    pulseAmp: 8,
-  },
-};
-
-// --- HELPERS ---
-
-const hexToRgb = (hex: string): number[] => {
-  const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
-  return result ? [
-    parseInt(result[1], 16),
-    parseInt(result[2], 16),
-    parseInt(result[3], 16)
-  ] : [0, 0, 0];
-};
-
-const lerp = (start: number, end: number, t: number) => start + (end - start) * t;
-
-const lerpArray = (start: number[], end: number[], t: number): number[] => {
-  return start.map((v, i) => lerp(v, end[i], t));
-};
-
-const rgbToString = (rgb: number[]) => `rgb(${Math.round(rgb[0])}, ${Math.round(rgb[1])}, ${Math.round(rgb[2])})`;
-
 
 const Orb: React.FC<OrbProps> = ({ level, state }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
-
-  // Mutable state for the animation loop to hold current interpolated values
-  const current = useRef({
-    radius: 80,
-    color1: hexToRgb(STATE_CONFIGS.idle.color1),
-    color2: hexToRgb(STATE_CONFIGS.idle.color2),
-    noiseAmp: 5,
-    ringAlpha: 0,
-    particleAlpha: 0,
-    time: 0,
-  });
-
   const requestRef = useRef<number | null>(null);
+
+  // Physics State
+  const rotation = useRef({ x: 0, y: 0 });
+  const pointsRef = useRef<Point3D[]>([]);
+  const timeRef = useRef(0);
+  const mouseRef = useRef({ x: 0, y: 0 });
+
+  // Initialize Cloud
+  useEffect(() => {
+    const points: Point3D[] = [];
+    const numPoints = 200; // Increased Density for high-end look
+
+    for (let i = 0; i < numPoints; i++) {
+      // Fibonacci Sphere distribution for even spread
+      const y = 1 - (i / (numPoints - 1)) * 2;
+      const radius = Math.sqrt(1 - y * y);
+      const theta = 2.39996 * i; // Golden Angle
+
+      const x = Math.cos(theta) * radius;
+      const z = Math.sin(theta) * radius;
+
+      points.push({
+        x, y, z,
+        baseX: x, baseY: y, baseZ: z
+      });
+    }
+    pointsRef.current = points;
+
+    const handleMouseMove = (e: MouseEvent) => {
+      mouseRef.current = { x: e.clientX, y: e.clientY };
+    };
+    window.addEventListener('mousemove', handleMouseMove);
+    return () => window.removeEventListener('mousemove', handleMouseMove);
+  }, []);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -113,7 +58,7 @@ const Orb: React.FC<OrbProps> = ({ level, state }) => {
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
-    // High DPI setup
+    // Config
     const dpr = window.devicePixelRatio || 1;
     const size = 320;
     canvas.width = size * dpr;
@@ -122,178 +67,159 @@ const Orb: React.FC<OrbProps> = ({ level, state }) => {
     canvas.style.width = `${size}px`;
     canvas.style.height = `${size}px`;
 
+    const cx = size / 2;
+    const cy = size / 2;
+
     const animate = () => {
-      const config = STATE_CONFIGS[state] || STATE_CONFIGS.idle;
-      const cur = current.current;
+      // 1. UPDATE PHYSICS
+      timeRef.current += 0.01;
+      const t = timeRef.current;
 
-      // 1. Calculate Targets (React to Audio Level)
-      let targetRadius = config.baseRadius;
-      let targetNoiseAmp = config.noiseAmpBase;
-      let targetColor1 = hexToRgb(config.color1);
-      let targetColor2 = hexToRgb(config.color2);
+      // Mouse Parallax Calculations
+      const targetTiltX = ((mouseRef.current.y / window.innerHeight) - 0.5) * 1.5; // Look up/down
+      const targetTiltY = ((mouseRef.current.x / window.innerWidth) - 0.5) * 1.5; // Look left/right
 
-      // Dynamic overrides based on audio level
-      if (state === 'listening') {
-        // Expand and distort based on volume
-        targetRadius += level * 60;
-        targetNoiseAmp += level * 50;
+      // Soft lerp for the "Eye" following effect
+      // We blend the continuous rotation with the mouse tilt
+      rotation.current.x += (targetTiltX - rotation.current.x) * 0.05;
+      // For Y, we keep spinning but tilt the axis? Or just bias the spin?
+      // Let's bias the spin "center" to the mouse.
+      // Actually, standard parallax rotates the object to face mouse.
 
-        // Shift color to Red/Amber if loud
-        if (level > 0.4) {
-          targetColor1 = hexToRgb('#ef4444'); // Red
-          targetColor2 = hexToRgb('#f59e0b'); // Amber
-        }
+      // Let's separate "Auto Spin" and "Look At"
+      // We will apply the look-at as an offset during projection.
+
+      // Default auto-spin speeds
+      let radiusScale = 100;
+      let autoRotSpeedY = 0.003;
+      let jitter = 0;
+      let connectionDist = 45;
+      let primaryColor = '167, 243, 208';
+
+      if (state === 'idle') {
+        radiusScale = 90 + Math.sin(t * 2) * 5;
+        autoRotSpeedY = 0.003;
+        primaryColor = '59, 130, 246'; // Blue
+      } else if (state === 'listening') {
+        radiusScale = 110 + level * 60;
+        autoRotSpeedY = 0.001;
+        jitter = 0.15 + (level * 0.5);
+        connectionDist = 55;
+        primaryColor = level > 0.4 ? '239, 68, 68' : '244, 114, 182';
+      } else if (state === 'processing') {
+        radiusScale = 70;
+        autoRotSpeedY = 0.2; // Vortex
+        primaryColor = '16, 185, 129';
+        connectionDist = 60;
+      } else if (state === 'playing') {
+        radiusScale = 95 + (Math.sin(t * 10) * 10) + (level * 30);
+        autoRotSpeedY = 0.01;
+        primaryColor = '96, 165, 250';
       }
 
-      // 2. Interpolate (Lerp) towards targets for smoothness
-      // Factor determines speed of transition (0.1 = fast, 0.02 = slow)
-      const smoothFactor = 0.08;
-
-      cur.radius = lerp(cur.radius, targetRadius, smoothFactor);
-      cur.noiseAmp = lerp(cur.noiseAmp, targetNoiseAmp, smoothFactor);
-      cur.ringAlpha = lerp(cur.ringAlpha, config.ringAlpha, 0.05);
-      cur.particleAlpha = lerp(cur.particleAlpha, config.particleAlpha, 0.05);
-
-      cur.color1 = lerpArray(cur.color1, targetColor1, smoothFactor);
-      cur.color2 = lerpArray(cur.color2, targetColor2, smoothFactor);
-
-      // Increment Time
-      let timeSpeed = config.noiseSpeed;
-      // Speed up noise when loud
-      if (state === 'listening') timeSpeed += level * 0.1;
-      cur.time += timeSpeed;
-
-      // --- DRAWING ---
-
-      const cx = size / 2;
-      const cy = size / 2;
-      const t = cur.time;
-
+      // 2. RENDER
       ctx.clearRect(0, 0, size, size);
 
-      // A. Background Glow (if rings active)
-      if (cur.ringAlpha > 0.01) {
-        const glowR = cur.radius + 15 + Math.sin(t * 4) * 5;
-        const glow = ctx.createRadialGradient(cx, cy, cur.radius, cx, cy, glowR);
-        glow.addColorStop(0, `rgba(16, 185, 129, ${0.2 * cur.ringAlpha})`);
-        glow.addColorStop(1, 'rgba(0,0,0,0)');
-        ctx.fillStyle = glow;
-        ctx.beginPath();
-        ctx.arc(cx, cy, glowR, 0, Math.PI * 2);
-        ctx.fill();
-      }
+      // Project Points
+      const projected = pointsRef.current.map(p => {
+        // Jitter
+        const jx = (Math.random() - 0.5) * jitter;
+        const jy = (Math.random() - 0.5) * jitter;
+        const jz = (Math.random() - 0.5) * jitter;
 
-      // B. Liquid Core
-      const grad = ctx.createRadialGradient(cx, cy, cur.radius * 0.2, cx, cy, cur.radius * 1.4);
-      grad.addColorStop(0, rgbToString(cur.color1));
-      grad.addColorStop(0.5, rgbToString(cur.color2));
-      grad.addColorStop(1, 'rgba(0,0,0,0)');
-      ctx.fillStyle = grad;
+        // Apply Rotation: Auto Spin + Mouse Tilt
+        // We add the auto-spin time to the base angle, then rotate by tilt
+        const autoAngle = t * (state === 'processing' ? 5 : 0.5); // spin base
 
-      // Shadow for glow effect
-      ctx.shadowBlur = (state === 'listening' && level > 0.2) ? 20 + level * 30 : 0;
-      ctx.shadowColor = rgbToString(cur.color1);
+        // Complex Rotation Matrix
+        // Base spin around Y
+        let x = (p.baseX + jx) * Math.cos(autoAngle * autoRotSpeedY * 100 + mouseRef.current.x * 0.001) - (p.baseZ + jz) * Math.sin(autoAngle * autoRotSpeedY * 100 + mouseRef.current.x * 0.001);
+        let z = (p.baseX + jx) * Math.sin(autoAngle * autoRotSpeedY * 100 + mouseRef.current.x * 0.001) + (p.baseZ + jz) * Math.cos(autoAngle * autoRotSpeedY * 100 + mouseRef.current.x * 0.001);
 
-      ctx.beginPath();
-      const points = 100;
-      for (let i = 0; i <= points; i++) {
-        const angle = (Math.PI * 2 * i) / points;
+        // Tilt X (Look up/down)
+        let y = (p.baseY + jy) * Math.cos(targetTiltX) - z * Math.sin(targetTiltX);
+        z = (p.baseY + jy) * Math.sin(targetTiltX) + z * Math.cos(targetTiltX);
 
-        // Noise Function
-        // Combine low freq sine (shape) and high freq cos (texture)
-        const wave1 = Math.sin(angle * 3 + t * config.noiseFreq * 0.2); // Morph
-        const wave2 = Math.cos(angle * 10 - t * config.noiseFreq * 0.8) * 0.5; // Detail
-        const wave3 = Math.sin(angle * 7 + t * 2) * 0.3; // Asymmetry
+        // Tilt Y (Look left/right extra)
+        const tempX = x * Math.cos(targetTiltY) - z * Math.sin(targetTiltY);
+        z = x * Math.sin(targetTiltY) + z * Math.cos(targetTiltY);
+        x = tempX;
 
-        // Apply amplitude
-        const noise = (wave1 + wave2 + wave3) * (cur.noiseAmp / 3);
+        // 2D Projection
+        const scale = 250 / (250 + z * radiusScale * 0.01);
+        const px = cx + x * radiusScale * scale;
+        const py = cy + y * radiusScale * scale;
 
-        // Add Pulse
-        const pulse = Math.sin(t * config.pulseSpeed * 100) * config.pulseAmp;
+        // Depth of Field (Alpha Calculation)
+        // Sharpen the curve: Items in back fade faster
+        const normalizedZ = (z + 1) / 2; // 0 (back) to 1 (front)
+        const alpha = Math.pow(normalizedZ, 3); // Cubic curve for dramatic depth
 
-        const r = cur.radius + noise + pulse;
-        const x = cx + Math.cos(angle) * r;
-        const y = cy + Math.sin(angle) * r;
+        return { x: px, y: py, z, alpha };
+      });
 
-        if (i === 0) ctx.moveTo(x, y);
-        else ctx.lineTo(x, y);
-      }
-      ctx.closePath();
-      ctx.fill();
+      // Draw Connections (Synapses)
+      ctx.lineWidth = 0.5;
+      projected.forEach((p1, i) => {
+        if (p1.z < -0.1) return; // Cull back-facing lines for clean look
 
-      // C. Gloss
-      ctx.shadowBlur = 0;
-      ctx.fillStyle = 'rgba(255, 255, 255, 0.15)';
-      ctx.beginPath();
-      ctx.ellipse(cx - cur.radius * 0.3, cy - cur.radius * 0.3, cur.radius * 0.15, cur.radius * 0.1, Math.PI / 4, 0, Math.PI * 2);
-      ctx.fill();
+        for (let j = i + 1; j < projected.length; j++) {
+          const p2 = projected[j];
+          if (p2.z < -0.1) continue;
 
-      // D. Rings (Processing)
-      if (cur.ringAlpha > 0.01) {
-        const ringR = cur.radius + 30;
-        ctx.save();
-        ctx.translate(cx, cy);
-        ctx.globalAlpha = cur.ringAlpha;
+          const dx = p1.x - p2.x;
+          const dy = p1.y - p2.y;
+          const dist = Math.sqrt(dx * dx + dy * dy);
 
-        // Outer Ring
-        ctx.rotate(t * 1.5);
-        ctx.strokeStyle = 'rgba(16, 185, 129, 0.4)';
-        ctx.lineWidth = 2;
-        ctx.beginPath();
-        ctx.arc(0, 0, ringR, 0, 1.2);
-        ctx.stroke();
-        ctx.beginPath();
-        ctx.arc(0, 0, ringR, 2.0, 3.2);
-        ctx.stroke();
-
-        // Inner Ring
-        ctx.rotate(-t * 3); // counter rotate
-        ctx.strokeStyle = 'rgba(6, 182, 212, 0.3)';
-        ctx.lineWidth = 1;
-        ctx.setLineDash([2, 8]);
-        ctx.beginPath();
-        ctx.arc(0, 0, ringR - 12, 0, Math.PI * 2);
-        ctx.stroke();
-
-        ctx.restore();
-      }
-
-      // E. Data Particles (Processing)
-      if (cur.particleAlpha > 0.01) {
-        ctx.globalAlpha = cur.particleAlpha;
-        const pCount = 8;
-        for (let p = 0; p < pCount; p++) {
-          const offset = (p * (Math.PI * 2)) / pCount;
-          const pTime = (t * 1.5 + offset) % 2;
-          const dist = 130 * (1 - (pTime / 2));
-
-          if (dist > 35) {
-            const angle = offset + t * 0.5;
-            const px = cx + Math.cos(angle) * dist;
-            const py = cy + Math.sin(angle) * dist;
+          if (dist < connectionDist) {
+            // Depth-based opacity for lines
+            const opacity = (1 - dist / connectionDist) * p1.alpha * p2.alpha * 0.8;
+            ctx.strokeStyle = `rgba(${primaryColor}, ${opacity})`;
             ctx.beginPath();
-            ctx.fillStyle = `rgba(167, 243, 208, ${dist / 130})`;
-            ctx.arc(px, py, 2, 0, Math.PI * 2);
-            ctx.fill();
+            ctx.moveTo(p1.x, p1.y);
+            ctx.lineTo(p2.x, p2.y);
+            ctx.stroke();
           }
         }
-        ctx.globalAlpha = 1;
-      }
+      });
 
-      // F. Playback Waves (Playing)
-      if (state === 'playing') {
-        const waveCount = 3;
-        for (let w = 0; w < waveCount; w++) {
-          const cycle = (t * 0.6 + w * 0.4) % 1;
-          const waveR = cur.radius + (cycle * 60);
-          const alpha = (1 - cycle) * 0.4;
+      // Draw Particles
+      projected.forEach(p => {
+        // Size based on depth (bigger in front)
+        const size = Math.max(0.5, (p.z + 1.2) * 1.5);
 
-          ctx.beginPath();
-          ctx.strokeStyle = `rgba(147, 197, 253, ${alpha})`;
-          ctx.lineWidth = 1.5;
-          ctx.arc(cx, cy, waveR, 0, Math.PI * 2);
-          ctx.stroke();
+        ctx.fillStyle = `rgba(${primaryColor}, ${p.alpha})`;
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, size, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Highlighting front nodes (Glow)
+        if (p.z > 0.6) {
+          ctx.shadowBlur = 15;
+          ctx.shadowColor = `rgb(${primaryColor})`;
+          ctx.fillStyle = `rgba(255, 255, 255, ${p.alpha})`; // White hot core
+          ctx.fill();
+          ctx.shadowBlur = 0;
         }
+      });
+
+      // Outer Ring Shell
+      if (state !== 'processing') {
+        ctx.strokeStyle = `rgba(${primaryColor}, 0.1)`;
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.arc(cx, cy, radiusScale * 1.2, 0, Math.PI * 2);
+        ctx.stroke();
+
+        // Counter-rotating ring segments
+        ctx.save();
+        ctx.translate(cx, cy);
+        ctx.rotate(-t * 0.2 + targetTiltY); // Rotate with mouse influence
+        ctx.strokeStyle = `rgba(${primaryColor}, 0.3)`;
+        ctx.beginPath();
+        ctx.arc(0, 0, radiusScale * 1.25, 0, 1.5);
+        ctx.stroke();
+        ctx.restore();
       }
 
       requestRef.current = requestAnimationFrame(animate);
@@ -304,12 +230,16 @@ const Orb: React.FC<OrbProps> = ({ level, state }) => {
     return () => {
       if (requestRef.current) cancelAnimationFrame(requestRef.current);
     };
-  }, [level, state]);
+  }, [state, level]); // Re-init if canvas ref changes, but state/level are refs in loop? No, they drive the loop vars inside.
+  // Actually, animating refs inside `animate` is better, but `state` is prop.
+  // The `animate` function is created once? No, `useEffect` depends on `state`? 
+  // If we recreate `animate` every state change, it's fine. 
+  // Optimized: Use refs for state inside loop if we want one loop. But recreating easy loop is fine for React.
 
   return (
     <canvas
       ref={canvasRef}
-      className="transition-transform duration-300 ease-out pointer-events-none"
+      className="transition-all duration-700 ease-out"
     />
   );
 };

@@ -73,16 +73,37 @@ const NeuralNetworkBackground: React.FC<NeuralNetworkBackgroundProps> = ({ activ
             particles.forEach((p, i) => {
                 // Move
                 if (active) {
-                    p.x += p.vx * 2; // Move faster when active
-                    p.y += p.vy * 2;
+                    // Magnetic Singularity
+                    const cx = canvas.width / 2;
+                    const cy = canvas.height / 2;
+                    const dx = cx - p.x;
+                    const dy = cy - p.y;
+                    const dist = Math.sqrt(dx * dx + dy * dy) || 1;
+
+                    // Pull towards center + Swirl
+                    const pullSpeed = 3;
+                    p.x += (dx / dist) * pullSpeed;
+                    p.y += (dy / dist) * pullSpeed;
+
+                    // Swirl (Tangent)
+                    p.x -= (dy / dist) * 1;
+                    p.y += (dx / dist) * 1;
+
+                    // Respawn if sucked in
+                    if (dist < 50) {
+                        const angle = Math.random() * Math.PI * 2;
+                        const radius = Math.max(canvas.width, canvas.height) * 0.7;
+                        p.x = cx + Math.cos(angle) * radius;
+                        p.y = cy + Math.sin(angle) * radius;
+                    }
                 } else {
                     p.x += p.vx * 0.5;
                     p.y += p.vy * 0.5;
-                }
 
-                // Bounce
-                if (p.x < 0 || p.x > canvas.width) p.vx *= -1;
-                if (p.y < 0 || p.y > canvas.height) p.vy *= -1;
+                    // Bounce
+                    if (p.x < 0 || p.x > canvas.width) p.vx *= -1;
+                    if (p.y < 0 || p.y > canvas.height) p.vy *= -1;
+                }
 
                 // Draw Dot
                 ctx.beginPath();

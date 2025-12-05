@@ -21,6 +21,16 @@ export const useRealtimeVoice = (webhookUrl: string): UseVoiceReturn => {
   const [transcript, setTranscript] = useState<string>("");
   const [error, setError] = useState<string | null>(null);
 
+  // VAD Refs
+  const lastSpeechTimeRef = useRef<number>(0);
+  const hasSpokenRef = useRef<boolean>(false);
+  const isListeningRef = useRef(false);
+
+  // Sync ref for animation loop
+  useEffect(() => {
+    isListeningRef.current = isListening;
+  }, [isListening]);
+
   // Audio Context for Visualization only
   const audioContextRef = useRef<AudioContext | null>(null);
   const analyserRef = useRef<AnalyserNode | null>(null);
@@ -134,15 +144,34 @@ export const useRealtimeVoice = (webhookUrl: string): UseVoiceReturn => {
     // Smooth dampening
     setAudioLevel(prev => prev * 0.8 + (rms * 8) * 0.2);
 
+    // Manual VAD (Voice Activity Detection)
+    if (isListeningRef.current) {
+      const threshold = 0.02; // Adjust sensitivity
+      if (rms > threshold) {
+        lastSpeechTimeRef.current = Date.now();
+        hasSpokenRef.current = true;
+      } else if (hasSpokenRef.current) {
+        // If silence for > 1.5s after speaking, force stop
+        const silenceDuration = Date.now() - lastSpeechTimeRef.current;
+        if (silenceDuration > 1500) {
+          console.log("VAD: Silence detected, stopping...");
+          stopInteraction();
+        }
+      }
+    }
+
     requestAnimFrameRef.current = requestAnimationFrame(analyzeAudioLevel);
   };
 
   const startInteraction = useCallback(async () => {
     if (isPlaying) {
-      // If playing, stop playback and start listening
       if (audioPlayerRef.current) audioPlayerRef.current.pause();
       setIsPlaying(false);
     }
+
+    // Reset VAD state
+    lastSpeechTimeRef.current = Date.now();
+    hasSpokenRef.current = false;
 
     setError(null);
     try {
