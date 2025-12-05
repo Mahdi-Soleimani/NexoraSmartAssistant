@@ -12,7 +12,7 @@ const N8N_WEBHOOK_URL = process.env.N8N_WEBHOOK_URL || 'http://localhost:5678/we
 const MODEL = 'gemini-2.5-flash-native-audio-preview-09-2025';
 
 // Define the automation tool for n8n
-const automationTool = {
+const automationTool: any = {
   functionDeclarations: [
     {
       name: 'trigger_automation',
