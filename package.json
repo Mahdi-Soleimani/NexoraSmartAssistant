@@ -3,7 +3,6 @@
   "private": true,
   "version": "0.0.0",
   "type": "module",
-  "homepage": "https://mahdi-soleimani.github.io/NexoraSmartAssistant",
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
