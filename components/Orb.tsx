@@ -5,9 +5,106 @@ interface OrbProps {
   state: 'idle' | 'listening' | 'processing' | 'playing';
 }
 
+// --- CONFIGURATION ---
+
+interface VisualConfig {
+  baseRadius: number;
+  noiseSpeed: number;
+  noiseFreq: number;
+  noiseAmpBase: number;
+  color1: string;
+  color2: string;
+  ringAlpha: number;
+  particleAlpha: number;
+  pulseSpeed: number;
+  pulseAmp: number;
+}
+
+const STATE_CONFIGS: Record<string, VisualConfig> = {
+  idle: {
+    baseRadius: 80,
+    noiseSpeed: 0.005,
+    noiseFreq: 3,
+    noiseAmpBase: 5,
+    color1: '#3b82f6', // Blue-500
+    color2: '#8b5cf6', // Violet-500
+    ringAlpha: 0,
+    particleAlpha: 0,
+    pulseSpeed: 0.02,
+    pulseAmp: 4,
+  },
+  listening: {
+    baseRadius: 90,
+    noiseSpeed: 0.02,
+    noiseFreq: 4,
+    noiseAmpBase: 10,
+    color1: '#f472b6', // Pink-400
+    color2: '#a855f7', // Purple-500
+    ringAlpha: 0,
+    particleAlpha: 0,
+    pulseSpeed: 0.05,
+    pulseAmp: 5,
+  },
+  processing: {
+    baseRadius: 70,
+    noiseSpeed: 0.04,
+    noiseFreq: 15, // High frequency for "thinking"
+    noiseAmpBase: 3,
+    color1: '#10b981', // Emerald-500
+    color2: '#06b6d4', // Cyan-500
+    ringAlpha: 1,    // Show rings
+    particleAlpha: 1, // Show data particles
+    pulseSpeed: 0.1,
+    pulseAmp: 3,
+  },
+  playing: {
+    baseRadius: 85,
+    noiseSpeed: 0.01,
+    noiseFreq: 6,
+    noiseAmpBase: 8,
+    color1: '#3b82f6', // Blue-500
+    color2: '#6366f1', // Indigo-500
+    ringAlpha: 0,
+    particleAlpha: 0,
+    pulseSpeed: 0.04,
+    pulseAmp: 10,
+  },
+};
+
+// --- HELPERS ---
+
+const hexToRgb = (hex: string): number[] => {
+  const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+  return result ? [
+    parseInt(result[1], 16),
+    parseInt(result[2], 16),
+    parseInt(result[3], 16)
+  ] : [0, 0, 0];
+};
+
+const lerp = (start: number, end: number, t: number) => start + (end - start) * t;
+
+const lerpArray = (start: number[], end: number[], t: number): number[] => {
+  return start.map((v, i) => lerp(v, end[i], t));
+};
+
+const rgbToString = (rgb: number[]) => `rgb(${Math.round(rgb[0])}, ${Math.round(rgb[1])}, ${Math.round(rgb[2])})`;
+
+
 const Orb: React.FC<OrbProps> = ({ level, state }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const timeRef = useRef<number>(0);
+  
+  // Mutable state for the animation loop to hold current interpolated values
+  const current = useRef({
+    radius: 80,
+    color1: hexToRgb(STATE_CONFIGS.idle.color1),
+    color2: hexToRgb(STATE_CONFIGS.idle.color2),
+    noiseAmp: 5,
+    ringAlpha: 0,
+    particleAlpha: 0,
+    time: 0,
+  });
+
   const requestRef = useRef<number | null>(null);
 
   useEffect(() => {
@@ -18,7 +115,7 @@ const Orb: React.FC<OrbProps> = ({ level, state }) => {
 
     // High DPI setup
     const dpr = window.devicePixelRatio || 1;
-    const size = 300;
+    const size = 320; 
     canvas.width = size * dpr;
     canvas.height = size * dpr;
     ctx.scale(dpr, dpr);
@@ -26,77 +123,97 @@ const Orb: React.FC<OrbProps> = ({ level, state }) => {
     canvas.style.height = `${size}px`;
 
     const animate = () => {
-      timeRef.current += 0.01;
-      
-      // Clear canvas
-      ctx.clearRect(0, 0, size, size);
-      
-      const centerX = size / 2;
-      const centerY = size / 2;
-      
-      // Base Settings
-      let baseRadius = 80;
-      let color1 = '#3b82f6'; // Blue
-      let color2 = '#8b5cf6'; // Purple
-      let noiseMagnitude = 0;
+      const config = STATE_CONFIGS[state] || STATE_CONFIGS.idle;
+      const cur = current.current;
 
+      // 1. Calculate Targets (React to Audio Level)
+      let targetRadius = config.baseRadius;
+      let targetNoiseAmp = config.noiseAmpBase;
+      let targetColor1 = hexToRgb(config.color1);
+      let targetColor2 = hexToRgb(config.color2);
+
+      // Dynamic overrides based on audio level
       if (state === 'listening') {
-        // Dynamic expansion based on audio level
-        baseRadius = 85 + (level * 100); 
-        
-        if (level > 0.2) {
-            color1 = '#f43f5e'; // Rose
-            color2 = '#f97316'; // Orange
-        } else {
-            color1 = '#ec4899'; // Pink
-            color2 = '#8b5cf6'; // Purple
-        }
+        // Expand and distort based on volume
+        targetRadius += level * 60; 
+        targetNoiseAmp += level * 50; 
 
-      } else if (state === 'processing') {
-        // Processing State: Tighter, faster vibration, "Digital" colors
-        baseRadius = 70 + Math.sin(timeRef.current * 15) * 1.5; 
-        color1 = '#10b981'; // Emerald
-        color2 = '#06b6d4'; // Cyan
-      } else if (state === 'playing') {
-        baseRadius = 85 + Math.sin(timeRef.current * 2) * 10; // Slow, deep breathing
-        color1 = '#3b82f6'; // Blue
-        color2 = '#6366f1'; // Indigo
-      } else {
-        // Idle
-        baseRadius = 80 + Math.sin(timeRef.current) * 5;
+        // Shift color to Red/Amber if loud
+        if (level > 0.4) {
+           targetColor1 = hexToRgb('#ef4444'); // Red
+           targetColor2 = hexToRgb('#f59e0b'); // Amber
+        }
       }
 
-      // -- 1. Draw Core Liquid Blob --
-      const gradient = ctx.createRadialGradient(centerX, centerY, baseRadius * 0.1, centerX, centerY, baseRadius * 1.5);
-      gradient.addColorStop(0, color1);
-      gradient.addColorStop(0.6, color2);
-      gradient.addColorStop(1, 'rgba(0,0,0,0)');
+      // 2. Interpolate (Lerp) towards targets for smoothness
+      // Factor determines speed of transition (0.1 = fast, 0.02 = slow)
+      const smoothFactor = 0.08; 
+
+      cur.radius = lerp(cur.radius, targetRadius, smoothFactor);
+      cur.noiseAmp = lerp(cur.noiseAmp, targetNoiseAmp, smoothFactor);
+      cur.ringAlpha = lerp(cur.ringAlpha, config.ringAlpha, 0.05);
+      cur.particleAlpha = lerp(cur.particleAlpha, config.particleAlpha, 0.05);
       
-      ctx.fillStyle = gradient;
+      cur.color1 = lerpArray(cur.color1, targetColor1, smoothFactor);
+      cur.color2 = lerpArray(cur.color2, targetColor2, smoothFactor);
+
+      // Increment Time
+      let timeSpeed = config.noiseSpeed;
+      // Speed up noise when loud
+      if (state === 'listening') timeSpeed += level * 0.1;
+      cur.time += timeSpeed;
+
+      // --- DRAWING ---
       
+      const cx = size / 2;
+      const cy = size / 2;
+      const t = cur.time;
+
+      ctx.clearRect(0, 0, size, size);
+
+      // A. Background Glow (if rings active)
+      if (cur.ringAlpha > 0.01) {
+        const glowR = cur.radius + 15 + Math.sin(t * 4) * 5;
+        const glow = ctx.createRadialGradient(cx, cy, cur.radius, cx, cy, glowR);
+        glow.addColorStop(0, `rgba(16, 185, 129, ${0.2 * cur.ringAlpha})`);
+        glow.addColorStop(1, 'rgba(0,0,0,0)');
+        ctx.fillStyle = glow;
+        ctx.beginPath();
+        ctx.arc(cx, cy, glowR, 0, Math.PI * 2);
+        ctx.fill();
+      }
+
+      // B. Liquid Core
+      const grad = ctx.createRadialGradient(cx, cy, cur.radius * 0.2, cx, cy, cur.radius * 1.4);
+      grad.addColorStop(0, rgbToString(cur.color1));
+      grad.addColorStop(0.5, rgbToString(cur.color2));
+      grad.addColorStop(1, 'rgba(0,0,0,0)');
+      ctx.fillStyle = grad;
+
+      // Shadow for glow effect
+      ctx.shadowBlur = (state === 'listening' && level > 0.2) ? 20 + level * 30 : 0;
+      ctx.shadowColor = rgbToString(cur.color1);
+
       ctx.beginPath();
-      // Increase vertex count for smoother liquid
-      const points = 40; 
+      const points = 100;
       for (let i = 0; i <= points; i++) {
         const angle = (Math.PI * 2 * i) / points;
         
-        // Calculate Noise
-        let noise = 0;
-        if (state === 'listening') {
-           const wave1 = Math.sin(angle * 6 + timeRef.current * 10);
-           const wave2 = Math.cos(angle * 3 - timeRef.current * 5);
-           const wave3 = Math.sin(angle * 9 + timeRef.current * 2);
-           noise = (wave1 + wave2 + (wave3 * 0.5)) * (level * 30 + 5);
-        } else if (state === 'processing') {
-           // Digital spike noise
-           noise = (Math.random() - 0.5) * 5;
-        } else {
-           noise = Math.sin(angle * 3 + timeRef.current * 2) * 5;
-        }
+        // Noise Function
+        // Combine low freq sine (shape) and high freq cos (texture)
+        const wave1 = Math.sin(angle * 3 + t * config.noiseFreq * 0.2); // Morph
+        const wave2 = Math.cos(angle * 10 - t * config.noiseFreq * 0.8) * 0.5; // Detail
+        const wave3 = Math.sin(angle * 7 + t * 2) * 0.3; // Asymmetry
 
-        const r = baseRadius + noise;
-        const x = centerX + Math.cos(angle) * r;
-        const y = centerY + Math.sin(angle) * r;
+        // Apply amplitude
+        const noise = (wave1 + wave2 + wave3) * (cur.noiseAmp / 3);
+        
+        // Add Pulse
+        const pulse = Math.sin(t * config.pulseSpeed * 100) * config.pulseAmp;
+
+        const r = cur.radius + noise + pulse;
+        const x = cx + Math.cos(angle) * r;
+        const y = cy + Math.sin(angle) * r;
         
         if (i === 0) ctx.moveTo(x, y);
         else ctx.lineTo(x, y);
@@ -104,69 +221,78 @@ const Orb: React.FC<OrbProps> = ({ level, state }) => {
       ctx.closePath();
       ctx.fill();
 
-      // -- 2. Draw Inner Highlight --
+      // C. Gloss
+      ctx.shadowBlur = 0;
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.15)';
       ctx.beginPath();
-      ctx.fillStyle = 'rgba(255, 255, 255, 0.2)';
-      const glossX = centerX - baseRadius * 0.3;
-      const glossY = centerY - baseRadius * 0.3;
-      ctx.arc(glossX, glossY, baseRadius * 0.15, 0, Math.PI * 2);
+      ctx.ellipse(cx - cur.radius * 0.3, cy - cur.radius * 0.3, cur.radius * 0.15, cur.radius * 0.1, Math.PI / 4, 0, Math.PI * 2);
       ctx.fill();
 
-      // -- 3. Extra Visuals for 'Processing' --
-      if (state === 'processing') {
-        const ringRadius = baseRadius + 30;
-        
-        // Ring 1 (Spinner)
+      // D. Rings (Processing)
+      if (cur.ringAlpha > 0.01) {
+        const ringR = cur.radius + 30;
         ctx.save();
-        ctx.translate(centerX, centerY);
-        ctx.rotate(timeRef.current * 4);
-        ctx.beginPath();
-        ctx.strokeStyle = 'rgba(16, 185, 129, 0.6)';
+        ctx.translate(cx, cy);
+        ctx.globalAlpha = cur.ringAlpha;
+
+        // Outer Ring
+        ctx.rotate(t * 1.5);
+        ctx.strokeStyle = 'rgba(16, 185, 129, 0.4)';
         ctx.lineWidth = 2;
-        ctx.arc(0, 0, ringRadius, 0, Math.PI * 1.3); 
-        ctx.stroke();
-        ctx.restore();
-
-        // Ring 2 (Counter-Spinner)
-        ctx.save();
-        ctx.translate(centerX, centerY);
-        ctx.rotate(-timeRef.current * 3);
         ctx.beginPath();
-        ctx.strokeStyle = 'rgba(6, 182, 212, 0.4)';
-        ctx.lineWidth = 1;
-        ctx.setLineDash([2, 10]);
-        ctx.arc(0, 0, ringRadius + 15, 0, Math.PI * 2);
+        ctx.arc(0, 0, ringR, 0, 1.2);
         ctx.stroke();
+        ctx.beginPath();
+        ctx.arc(0, 0, ringR, 2.0, 3.2);
+        ctx.stroke();
+        
+        // Inner Ring
+        ctx.rotate(-t * 3); // counter rotate
+        ctx.strokeStyle = 'rgba(6, 182, 212, 0.3)';
+        ctx.lineWidth = 1;
+        ctx.setLineDash([2, 8]);
+        ctx.beginPath();
+        ctx.arc(0, 0, ringR - 12, 0, Math.PI * 2);
+        ctx.stroke();
+        
         ctx.restore();
-
-        // Data Streams (Particles moving inward)
-        const particleCount = 8;
-        for (let p = 0; p < particleCount; p++) {
-          const angle = (p / particleCount) * Math.PI * 2 + timeRef.current;
-          const dist = 140 - ((timeRef.current * 100 + p * 20) % 60); // Move from 140 down to 80
-          if (dist > 80) {
-            const px = centerX + Math.cos(angle) * dist;
-            const py = centerY + Math.sin(angle) * dist;
-            ctx.beginPath();
-            ctx.fillStyle = '#a7f3d0'; // Light green
-            ctx.arc(px, py, 2, 0, Math.PI * 2);
-            ctx.fill();
-          }
-        }
       }
 
-      // -- 4. Extra Visuals for 'Playing' --
+      // E. Data Particles (Processing)
+      if (cur.particleAlpha > 0.01) {
+        ctx.globalAlpha = cur.particleAlpha;
+        const pCount = 8;
+        for (let p = 0; p < pCount; p++) {
+           const offset = (p * (Math.PI * 2)) / pCount;
+           const pTime = (t * 1.5 + offset) % 2; 
+           const dist = 130 * (1 - (pTime / 2));
+           
+           if (dist > 35) {
+             const angle = offset + t * 0.5;
+             const px = cx + Math.cos(angle) * dist;
+             const py = cy + Math.sin(angle) * dist;
+             ctx.beginPath();
+             ctx.fillStyle = `rgba(167, 243, 208, ${dist/130})`;
+             ctx.arc(px, py, 2, 0, Math.PI * 2);
+             ctx.fill();
+           }
+        }
+        ctx.globalAlpha = 1;
+      }
+
+      // F. Playback Waves (Playing)
       if (state === 'playing') {
-          const rippleCount = 3;
-          for (let r = 0; r < rippleCount; r++) {
-            const expansion = (timeRef.current * 40 + r * 50) % 100;
-            const alpha = 1 - (expansion / 100);
-            
-            ctx.beginPath();
-            ctx.strokeStyle = `rgba(99, 102, 241, ${alpha * 0.4})`;
-            ctx.lineWidth = 1;
-            ctx.arc(centerX, centerY, baseRadius + expansion, 0, Math.PI * 2);
-            ctx.stroke();
+          const waveCount = 3;
+          for (let w = 0; w < waveCount; w++) {
+             const cycle = (t * 0.6 + w * 0.4) % 1;
+             const waveR = cur.radius + (cycle * 60);
+             const alpha = (1 - cycle) * 0.4;
+             
+             ctx.beginPath();
+             ctx.strokeStyle = `rgba(147, 197, 253, ${alpha})`;
+             ctx.lineWidth = 1.5;
+             ctx.arc(cx, cy, waveR, 0, Math.PI * 2);
+             ctx.stroke();
           }
       }
 

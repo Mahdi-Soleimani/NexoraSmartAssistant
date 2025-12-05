@@ -3,11 +3,11 @@ import { useRealtimeVoice } from './hooks/useRealtimeVoice';
 import Orb from './components/Orb';
 
 // Security: Webhook URL is now loaded from environment variables
-const WEBHOOK_URL = process.env.REACT_APP_N8N_WEBHOOK_URL || 'https://50356-4vb9a.s3.irann8n.com/webhook/0c98ae44-713b-47c8-8c28-f39ac0e23f12';
+const WEBHOOK_URL = process.env.REACT_APP_N8N_WEBHOOK_URL;
 
 const AGENT_MESSAGES = [
   "Encrypting audio stream...",
-  "Handshaking with Neural Core...",
+  "Handshaking with Neural Core..."
   "Agent V: Parsing intent...",
   "Agent X: Retrieving context...",
   "Running semantic analysis...",
