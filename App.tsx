@@ -106,9 +106,17 @@ const App: React.FC = () => {
   };
 
   const appState = isListening ? 'listening' : isProcessing ? 'processing' : isPlaying ? 'speaking' : 'idle';
+  const isSecure = typeof window !== 'undefined' && window.isSecureContext;
 
   return (
     <div className="relative w-full h-screen bg-black overflow-hidden flex flex-col items-center justify-center font-sans selection:bg-cyan-500/30">
+
+      {/* Security Warning for Mobile/Network Access */}
+      {!isSecure && (
+        <div className="absolute top-0 left-0 w-full bg-yellow-500/10 border-b border-yellow-500/20 text-yellow-400 text-[10px] md:text-xs font-mono text-center py-2 z-[100] backdrop-blur-md">
+          ⚠️ MICROPHONE REQUIRES HTTPS. IF ON MOBILE, USE LOCALHOST OR ENABLE SSL.
+        </div>
+      )}
 
       {/* Background Gradients & Mesh */}
       <div className="absolute inset-0 pointer-events-none">

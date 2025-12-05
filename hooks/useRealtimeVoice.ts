@@ -37,33 +37,64 @@ export const useRealtimeVoice = (webhookUrl: string): UseVoiceReturn => {
     const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
     if (SpeechRecognition) {
       const recognition = new SpeechRecognition();
-      recognition.continuous = false; // Stop after one sentence/result
-      recognition.interimResults = false;
-      recognition.lang = 'fa-IR'; // Defaulting to Persian as per prompt context, or use navigator.language
+      recognition.continuous = false; // Mobile friendly
+      recognition.interimResults = true; // For ghost transcript
+      recognition.maxAlternatives = 1;
+      recognition.lang = 'fa-IR'; // Default to Persian
 
       recognition.onresult = async (event: any) => {
-        // Clear timer if successful result comes in before 10s
+        // Clear watchdog if we validly hear something
         if (timerRef.current) clearTimeout(timerRef.current);
 
-        const transcriptText = event.results[0][0].transcript;
-        console.log("Recognized:", transcriptText);
-        setTranscript(transcriptText);
-        stopInteraction(); // Stop recording/visualizing
-        await sendTextToWebhook(transcriptText);
+        let finalTranscript = '';
+        let interimTranscript = '';
+
+        for (let i = event.resultIndex; i < event.results.length; ++i) {
+          if (event.results[i].isFinal) {
+            finalTranscript += event.results[i][0].transcript;
+          } else {
+            interimTranscript += event.results[i][0].transcript;
+          }
+        }
+
+        // Update UI with whatever we have (interim or final)
+        const currentText = finalTranscript || interimTranscript;
+        if (currentText) {
+          setTranscript(currentText);
+          console.log("Hearing:", currentText);
+        }
+
+        if (finalTranscript) {
+          console.log("Recognized Final:", finalTranscript);
+          stopInteraction();
+          await sendTextToWebhook(finalTranscript);
+        }
       };
 
       recognition.onerror = (event: any) => {
         console.error("Speech recognition error", event.error);
         if (timerRef.current) clearTimeout(timerRef.current);
 
-        if (event.error === 'no-speech') {
+        if (event.error === 'not-allowed') {
+          setError("Microphone blocked. Check permissions or HTTPS.");
+        } else if (event.error === 'no-speech') {
           setError("No speech detected.");
+        } else if (event.error === 'network') {
+          setError("Network error during recognition.");
         } else if (event.error === 'aborted') {
-          // Ignore manual aborts or timeout aborts
+          // Ignore
         } else {
-          setError("Voice recognition failed.");
+          setError(`Voice Error: ${event.error}`);
         }
         stopInteraction();
+      };
+
+      // Handle aggressive mobile stop
+      recognition.onend = () => {
+        // If we didn't get a final result and we are still "listening" state-wise (and no error), 
+        // it might be a silent close. But stopInteraction sets listening=false.
+        // We can just ensure cleanup happens.
+        // stopInteraction(); // Double safety
       };
 
       recognitionRef.current = recognition;
