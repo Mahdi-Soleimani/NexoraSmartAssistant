@@ -161,7 +161,7 @@ export const useRealtimeVoice = (webhookUrl: string): UseVoiceReturn => {
 
   const sendTextToWebhook = async (text: string) => {
     setIsProcessing(true);
-    setAudioLevel(0.5); 
+    setAudioLevel(0.5); // Set a steady level for "Processing" animation
     
     try {
       if (!webhookUrl) throw new Error("Webhook URL is missing");
@@ -172,20 +172,10 @@ export const useRealtimeVoice = (webhookUrl: string): UseVoiceReturn => {
         body: JSON.stringify({ text: text }),
       });
 
-      if (!response.ok) {
-        throw new Error(`Webhook failed: ${response.statusText}`);
-      }
+      if (!response.ok) throw new Error(`Webhook failed: ${response.statusText}`);
 
-      // 1. دریافت مستقیم فایل به صورت Blob
-      const rawBlob = await response.blob();
-      console.log("Audio received. Size:", rawBlob.size);
-
-      // 2. ساخت مجدد Blob با اجبار کردن فرمت صوتی
-      // این کار ارور NotSupportedError مرورگر را حل می‌کند اگر هدر سرور اشتباه باشد
-      const audioBlob = new Blob([rawBlob], { type: 'audio/mpeg' });
-      
-      // 3. پخش صدا
-      playResponseAudio(audioBlob);
+      const responseBlob = await response.blob();
+      playResponseAudio(responseBlob);
 
     } catch (err: any) {
       console.error("Processing error:", err);
