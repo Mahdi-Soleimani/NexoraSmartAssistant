@@ -200,7 +200,8 @@ export const useRealtimeVoice = (webhookUrl: string): UseVoiceReturn => {
       }
 
       // Expecting Audio Blob in response
-      const responseBlob = await response.blob();
+      const arrayBuffer = await response.arrayBuffer();
+      const responseBlob = new Blob([arrayBuffer], { type: 'audio/mpeg' });
       playResponseAudio(responseBlob);
 
     } catch (err: any) {
