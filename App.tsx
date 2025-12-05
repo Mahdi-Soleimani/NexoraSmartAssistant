@@ -3,7 +3,7 @@ import { useRealtimeVoice } from './hooks/useRealtimeVoice';
 import Orb from './components/Orb';
 
 // Security: Webhook URL is now loaded from environment variables
-const WEBHOOK_URL = (import.meta as any).env?.VITE_N8N_WEBHOOK_URL || '';
+const WEBHOOK_URL = (import.meta as any).env?.VITE_N8N_WEBHOOK_URL || 'https://api.nexoraaistudio.tech/assistant/';
 
 const AGENT_MESSAGES = [
   "Encrypting audio stream...",
