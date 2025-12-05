@@ -7,7 +7,19 @@ export function calculateRMS(data: Float32Array): number {
   return Math.sqrt(sum / data.length);
 }
 
+
 // Helper to create a blob from chunks
 export function createAudioBlob(chunks: Blob[], mimeType: string = 'audio/webm'): Blob {
   return new Blob(chunks, { type: mimeType });
 }
+
+export function base64ToBlob(base64: string, mimeType: string = 'audio/mpeg'): Blob {
+  const byteCharacters = atob(base64);
+  const byteNumbers = new Array(byteCharacters.length);
+  for (let i = 0; i < byteCharacters.length; i++) {
+    byteNumbers[i] = byteCharacters.charCodeAt(i);
+  }
+  const byteArray = new Uint8Array(byteNumbers);
+  return new Blob([byteArray], { type: mimeType });
+}
+

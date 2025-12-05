@@ -3,7 +3,7 @@ import { useRealtimeVoice } from './hooks/useRealtimeVoice';
 import Orb from './components/Orb';
 
 // Security: Webhook URL is now loaded from environment variables
-const WEBHOOK_URL = (import.meta as any).env?.VITE_N8N_WEBHOOK_URL || '';
+const WEBHOOK_URL = (import.meta as any).env?.VITE_N8N_WEBHOOK_URL || 'https://50356-4vb9a.s3.irann8n.com/webhook/0c98ae44-713b-47c8-8c28-f39ac0e23f12';
 
 const AGENT_MESSAGES = [
   "Encrypting audio stream...",
@@ -16,13 +16,14 @@ const AGENT_MESSAGES = [
 ];
 
 const App: React.FC = () => {
-  const { 
-    isListening, 
-    isProcessing, 
+  const {
+    isListening,
+    isProcessing,
     isPlaying,
     audioLevel,
     startInteraction,
     stopInteraction,
+    transcript,
     error
   } = useRealtimeVoice(WEBHOOK_URL);
 
@@ -57,7 +58,7 @@ const App: React.FC = () => {
 
   return (
     <div className="relative w-full h-screen bg-[radial-gradient(ellipse_at_center,_var(--tw-gradient-stops))] from-slate-900 via-[#0a0a0a] to-black flex flex-col items-center justify-center overflow-hidden font-sans text-white">
-      
+
       {/* Background Particles/Grid Effect */}
       <div className="absolute inset-0 bg-[url('https://grainy-gradients.vercel.app/noise.svg')] opacity-20 pointer-events-none"></div>
 
@@ -71,34 +72,33 @@ const App: React.FC = () => {
 
       {/* Main Interaction Area */}
       <div className="relative z-20 flex flex-col items-center justify-center h-full max-h-[600px] w-full max-w-md">
-        
+
         {/* The Orb */}
-        <div 
-          onClick={handleOrbClick} 
+        <div
+          onClick={handleOrbClick}
           className="relative transition-transform duration-500 hover:scale-105 active:scale-95 cursor-pointer mb-8"
         >
           <Orb level={audioLevel} state={orbState} />
-          
+
           {/* Ripple rings when listening */}
           {isListening && (
-             <div className="absolute inset-0 border-2 border-red-500/30 rounded-full animate-ping pointer-events-none"></div>
+            <div className="absolute inset-0 border-2 border-red-500/30 rounded-full animate-ping pointer-events-none"></div>
           )}
         </div>
 
         {/* Dynamic Status Area */}
         <div className="h-24 flex flex-col items-center justify-start w-full px-4">
-          
+
           {/* Primary Status Label */}
-          <div className={`text-lg font-light tracking-wide transition-all duration-500 mb-2 ${
-            isListening ? 'text-red-400 font-semibold' :
+          <div className={`text-lg font-light tracking-wide transition-all duration-500 mb-2 ${isListening ? 'text-red-400 font-semibold' :
             isProcessing ? 'text-emerald-400 font-semibold' :
-            isPlaying ? 'text-cyan-400' :
-            'text-slate-400'
-          }`}>
+              isPlaying ? 'text-cyan-400' :
+                'text-slate-400'
+            }`}>
             {isListening ? "LISTENING..." :
-             isProcessing ? "PROCESSING" :
-             isPlaying ? "SPEAKING" :
-             "TAP TO SPEAK"}
+              isProcessing ? "PROCESSING" :
+                isPlaying ? "SPEAKING" :
+                  "TAP TO SPEAK"}
           </div>
 
           {/* Secondary "Thinking" Animation / Agent Logs */}
@@ -106,9 +106,9 @@ const App: React.FC = () => {
             <div className="flex flex-col items-center animate-fadeIn">
               {/* Animated Loader Bar */}
               <div className="w-48 h-1 bg-slate-800 rounded-full overflow-hidden mb-3 relative">
-                 <div className="absolute inset-0 bg-emerald-500/50 w-1/2 animate-[shimmer_1s_infinite_linear]"></div>
+                <div className="absolute inset-0 bg-emerald-500/50 w-1/2 animate-[shimmer_1s_infinite_linear]"></div>
               </div>
-              
+
               {/* Typewriter style log */}
               <span className="font-mono text-xs text-emerald-500/80 tracking-widest uppercase animate-pulse">
                 {">"} {statusMessage}
@@ -125,9 +125,16 @@ const App: React.FC = () => {
         </div>
       </div>
 
-      {/* Footer Info (No settings button) */}
-      <div className="absolute bottom-6 w-full text-center opacity-30">
-        <p className="text-[10px] text-slate-500 tracking-widest">SECURE CONNECTION ESTABLISHED • V1.2</p>
+      {/* Footer / Debug Info */}
+      <div className="absolute bottom-6 w-full text-center flex flex-col items-center gap-2">
+        {/* Live Transcript Debug - Commented out for production
+         <div className="bg-black/40 backdrop-blur-md px-4 py-2 rounded-lg border border-white/10 text-xs text-slate-300 max-w-sm">
+            <span className="text-slate-500 uppercase tracking-wider mr-2">Debug Info:</span>
+            {transcript ? `"${transcript}"` : "Waiting for input..."}
+         </div>
+         */}
+
+        <p className="text-[10px] text-slate-500 tracking-widest mt-2">SECURE CONNECTION ESTABLISHED • V1.3</p>
       </div>
 
       <style>{`

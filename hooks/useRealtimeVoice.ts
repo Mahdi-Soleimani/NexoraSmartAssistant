@@ -1,21 +1,24 @@
 import { useRef, useState, useCallback, useEffect } from 'react';
-import { calculateRMS } from '../utils/audioUtils';
+import { calculateRMS, base64ToBlob } from '../utils/audioUtils';
 
 interface UseVoiceReturn {
   isListening: boolean;
   isProcessing: boolean;
   isPlaying: boolean;
   audioLevel: number;
+  transcript: string;
   startInteraction: () => Promise<void>;
   stopInteraction: () => void;
   error: string | null;
 }
+
 
 export const useRealtimeVoice = (webhookUrl: string): UseVoiceReturn => {
   const [isListening, setIsListening] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const [isPlaying, setIsPlaying] = useState(false);
   const [audioLevel, setAudioLevel] = useState(0);
+  const [transcript, setTranscript] = useState<string>("");
   const [error, setError] = useState<string | null>(null);
 
   // Audio Context for Visualization only
@@ -23,7 +26,7 @@ export const useRealtimeVoice = (webhookUrl: string): UseVoiceReturn => {
   const analyserRef = useRef<AnalyserNode | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const requestAnimFrameRef = useRef<number | null>(null);
-  
+
   // Speech Recognition
   const recognitionRef = useRef<any>(null);
   const timerRef = useRef<number | null>(null);
@@ -37,25 +40,26 @@ export const useRealtimeVoice = (webhookUrl: string): UseVoiceReturn => {
       recognition.continuous = false; // Stop after one sentence/result
       recognition.interimResults = false;
       recognition.lang = 'fa-IR'; // Defaulting to Persian as per prompt context, or use navigator.language
-      
+
       recognition.onresult = async (event: any) => {
         // Clear timer if successful result comes in before 10s
         if (timerRef.current) clearTimeout(timerRef.current);
 
-        const transcript = event.results[0][0].transcript;
-        console.log("Recognized:", transcript);
+        const transcriptText = event.results[0][0].transcript;
+        console.log("Recognized:", transcriptText);
+        setTranscript(transcriptText);
         stopInteraction(); // Stop recording/visualizing
-        await sendTextToWebhook(transcript);
+        await sendTextToWebhook(transcriptText);
       };
 
       recognition.onerror = (event: any) => {
         console.error("Speech recognition error", event.error);
         if (timerRef.current) clearTimeout(timerRef.current);
-        
+
         if (event.error === 'no-speech') {
           setError("No speech detected.");
         } else if (event.error === 'aborted') {
-            // Ignore manual aborts or timeout aborts
+          // Ignore manual aborts or timeout aborts
         } else {
           setError("Voice recognition failed.");
         }
@@ -104,11 +108,11 @@ export const useRealtimeVoice = (webhookUrl: string): UseVoiceReturn => {
 
   const startInteraction = useCallback(async () => {
     if (isPlaying) {
-        // If playing, stop playback and start listening
-        if (audioPlayerRef.current) audioPlayerRef.current.pause();
-        setIsPlaying(false);
+      // If playing, stop playback and start listening
+      if (audioPlayerRef.current) audioPlayerRef.current.pause();
+      setIsPlaying(false);
     }
-    
+
     setError(null);
     try {
       // 1. Start Microphone for Visualization (AudioContext)
@@ -118,35 +122,35 @@ export const useRealtimeVoice = (webhookUrl: string): UseVoiceReturn => {
       const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
       const audioCtx = new AudioContextClass();
       audioContextRef.current = audioCtx;
-      
+
       const analyser = audioCtx.createAnalyser();
       analyser.fftSize = 256;
       analyserRef.current = analyser;
 
       const source = audioCtx.createMediaStreamSource(stream);
       source.connect(analyser);
-      
+
       analyzeAudioLevel();
 
       // 2. Start Speech Recognition
       if (recognitionRef.current) {
         try {
-            recognitionRef.current.start();
+          recognitionRef.current.start();
         } catch (e) {
-            console.warn("Recognition already started", e);
+          console.warn("Recognition already started", e);
         }
         setIsListening(true);
       }
 
       // 3. Auto-stop after 10 seconds
       if (timerRef.current) clearTimeout(timerRef.current);
-      
+
       // Explicitly define window.setTimeout to avoid type confusion with Node.js
       timerRef.current = window.setTimeout(() => {
         console.warn("Time limit reached");
         if (recognitionRef.current) {
-            // Abort to prevent processing partial speech as a valid command
-            recognitionRef.current.abort(); 
+          // Abort to prevent processing partial speech as a valid command
+          recognitionRef.current.abort();
         }
         stopInteraction();
         setError("Time limit reached (10s).");
@@ -157,16 +161,16 @@ export const useRealtimeVoice = (webhookUrl: string): UseVoiceReturn => {
       setError("Microphone access denied.");
       setIsListening(false);
     }
-  }, [isPlaying]); 
+  }, [isPlaying]);
 
   const stopInteraction = useCallback(() => {
     if (timerRef.current) clearTimeout(timerRef.current);
-    
+
     // Stop Recognition
     if (recognitionRef.current) {
       try {
         recognitionRef.current.stop();
-      } catch(e) { /* ignore if already stopped */ }
+      } catch (e) { /* ignore if already stopped */ }
     }
 
     // Stop Visualization stream
@@ -176,7 +180,7 @@ export const useRealtimeVoice = (webhookUrl: string): UseVoiceReturn => {
     if (requestAnimFrameRef.current) {
       cancelAnimationFrame(requestAnimFrameRef.current);
     }
-    
+
     setIsListening(false);
     setAudioLevel(0);
   }, []);
@@ -199,9 +203,29 @@ export const useRealtimeVoice = (webhookUrl: string): UseVoiceReturn => {
         throw new Error(`Webhook failed: ${response.statusText}`);
       }
 
-      // Expecting Audio Blob in response
-      const arrayBuffer = await response.arrayBuffer();
-      const responseBlob = new Blob([arrayBuffer], { type: 'audio/mpeg' });
+      // Check content type to handle JSON answers vs Binary Audio
+      const contentType = response.headers.get('content-type');
+      let responseBlob: Blob;
+
+      if (contentType && contentType.includes('application/json')) {
+        const json = await response.json();
+
+        if (json.audio) {
+          // Assume base64 audio
+          responseBlob = base64ToBlob(json.audio);
+        } else if (json.message || json.error) {
+          throw new Error(`Server: ${json.message || json.error}`);
+        } else {
+          console.warn("Received JSON:", json);
+          throw new Error("Received JSON without 'audio' field. Check n8n workflow.");
+        }
+      } else {
+        // Binary mode: Force 'audio/mpeg' because we confirmed it's an MP3 (ID3 tag)
+        // even if server sends application/octet-stream
+        const arrayBuffer = await response.arrayBuffer();
+        responseBlob = new Blob([arrayBuffer], { type: 'audio/mpeg' });
+      }
+
       playResponseAudio(responseBlob);
 
     } catch (err: any) {
@@ -222,15 +246,28 @@ export const useRealtimeVoice = (webhookUrl: string): UseVoiceReturn => {
       URL.revokeObjectURL(audioUrl);
     };
 
-    audio.onerror = (e) => {
+    audio.onerror = async (e: Event | string) => {
       console.error("Audio playback error", e);
-      setError("Could not play response.");
+      let errCode: number | string = 'Unknown';
+      if (typeof e !== 'string' && (e as Event).target) {
+        errCode = ((e as Event).target as HTMLAudioElement).error?.code || 'Unknown';
+      }
+
+      // Attempt to peek at the content if it failed
+      let msg = `Err: Size=${blob.size}b, Code=${errCode}`;
+      if (typeof errCode === 'number' && errCode === 4) {
+        // Source not supported - might be text/json masked as audio
+        const text = await blob.slice(0, 50).text();
+        msg += ` Content="${text.replace(/\n/g, ' ')}..."`;
+      }
+      setError(msg);
       setIsPlaying(false);
       setIsProcessing(false);
     };
 
     setIsProcessing(false);
     setIsPlaying(true);
+    audio.load(); // Ensure source is loaded
     audio.play();
   };
 
@@ -239,6 +276,7 @@ export const useRealtimeVoice = (webhookUrl: string): UseVoiceReturn => {
     isProcessing,
     isPlaying,
     audioLevel,
+    transcript,
     startInteraction,
     stopInteraction,
     error
