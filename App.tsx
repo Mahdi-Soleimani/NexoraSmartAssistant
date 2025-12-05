@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useRealtimeVoice } from './hooks/useRealtimeVoice';
-import Orb from './components/Orb';
+// import Orb from './components/Orb'; // Keeping for reference/fallback
+import ParticleOrb from './components/ParticleOrb';
 import { Mic, Radio, Zap, Activity, Chrome } from 'lucide-react'; // Added Chrome icon
 
 import NeuralNetworkBackground from './components/NeuralNetworkBackground';
@@ -151,19 +152,22 @@ const App: React.FC = () => {
 
         {/* Orb Container */}
         <div
-          onClick={isListening ? stopInteraction : startInteraction}
-          className={`relative group cursor-pointer transition-all duration-500 ${isListening ? 'scale-110' : 'hover:scale-105'}`}
+          onClick={handleOrbClick}
+          className={`relative group cursor-pointer transition-all duration-500`}
         >
-          <div className={`absolute inset-0 bg-gradient-to-tr from-cyan-500/20 to-purple-500/20 rounded-full blur-3xl transition-opacity duration-1000 ${isListening || isProcessing ? 'opacity-100' : 'opacity-0'}`} />
-          <Orb
-            level={audioLevel}
+          {/* Background Glow */}
+          <div className={`absolute inset-0 bg-gradient-to-tr from-cyan-500/10 to-purple-500/10 rounded-full blur-3xl transition-opacity duration-1000 ${isListening || isProcessing ? 'opacity-100' : 'opacity-0'}`} />
+
+          {/* 3D Particle System */}
+          <ParticleOrb
             state={isPlaying ? 'playing' : isProcessing ? 'processing' : isListening ? 'listening' : 'idle'}
+            audioLevel={audioLevel}
           />
 
           {/* Tap Prompt (Only when idle) */}
           {!isListening && !isProcessing && !isPlaying && (
             <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-              <span className="text-white/50 text-xs font-mono tracking-widest animate-pulse">TAP TO START</span>
+              <span className="text-white/50 text-xs font-mono tracking-widest animate-pulse mt-40">TAP TO START</span>
             </div>
           )}
         </div>

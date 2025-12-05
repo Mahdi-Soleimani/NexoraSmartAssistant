@@ -260,6 +260,8 @@ export const useRealtimeVoice = (webhookUrl: string): UseVoiceReturn => {
     try {
       if (!webhookUrl) throw new Error("Webhook URL is missing");
 
+      console.log("Sending to Webhook:", webhookUrl, { text });
+
       // Send JSON payload
       const response = await fetch(webhookUrl, {
         method: 'POST',
@@ -269,16 +271,25 @@ export const useRealtimeVoice = (webhookUrl: string): UseVoiceReturn => {
         body: JSON.stringify({ text: text }),
       });
 
+      console.log("Webhook Response Status:", response.status);
+      const contentType = response.headers.get('content-type');
+      console.log("Webhook Content-Type:", contentType);
+
       if (!response.ok) {
-        throw new Error(`Webhook failed: ${response.statusText}`);
+        throw new Error(`Webhook failed: ${response.status} ${response.statusText}`);
       }
 
-      // Check content type to handle JSON answers vs Binary Audio
-      const contentType = response.headers.get('content-type');
       let responseBlob: Blob;
 
       if (contentType && contentType.includes('application/json')) {
-        const json = await response.json();
+        const textData = await response.text();
+        console.log("Webhook Response Body:", textData);
+
+        if (!textData) {
+          throw new Error("n8n Server Error: Returned empty response. Check 'Respond to Webhook' node.");
+        }
+
+        const json = JSON.parse(textData);
 
         if (json.audio) {
           // Assume base64 audio
@@ -287,12 +298,15 @@ export const useRealtimeVoice = (webhookUrl: string): UseVoiceReturn => {
           throw new Error(`Server: ${json.message || json.error}`);
         } else {
           console.warn("Received JSON:", json);
-          throw new Error("Received JSON without 'audio' field. Check n8n workflow.");
+          // Fallback: maybe the JSON *is* the message?
+          throw new Error("n8n Error: JSON missing 'audio' field.");
         }
       } else {
-        // Binary mode: Force 'audio/mpeg' because we confirmed it's an MP3 (ID3 tag)
-        // even if server sends application/octet-stream
+        // Binary mode
         const arrayBuffer = await response.arrayBuffer();
+        if (arrayBuffer.byteLength === 0) {
+          throw new Error("n8n Server Error: Returned empty binary response.");
+        }
         responseBlob = new Blob([arrayBuffer], { type: 'audio/mpeg' });
       }
 
