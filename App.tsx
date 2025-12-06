@@ -109,7 +109,7 @@ const App: React.FC = () => {
       </div>
 
       {/* Main Content */}
-      <div className="relative z-10 flex flex-col items-center justify-between min-h-[500px] h-full py-20 md:py-24 md:justify-center md:gap-8 w-full max-w-2xl px-6">
+      <div className="relative z-10 flex flex-col items-center justify-between min-h-[500px] h-full py-20 md:py-480 md:justify-center md:gap-8 w-full max-w-2xl px-6">
 
         {/* Header */}
         <div className="text-center space-y-1 md:space-y-0 mt-4 md:mt-0 flex-shrink-0">
