@@ -2,6 +2,7 @@
 import React, { useRef, useMemo, useEffect } from 'react';
 import { Canvas, useFrame } from '@react-three/fiber';
 import { OrbitControls } from '@react-three/drei';
+import { EffectComposer, Bloom } from '@react-three/postprocessing';
 import * as THREE from 'three';
 
 interface ParticleOrbProps {
@@ -9,12 +10,11 @@ interface ParticleOrbProps {
     audioLevel: number; // 0 to 1
 }
 
-const COUNT = 2000;
+const COUNT = 2500; // Increased particle count for denser visual
 
 // Helper to generate different shapes
 const generateParticles = (shape: 'sphere' | 'mic' | 'brain' | 'wave') => {
     const positions = new Float32Array(COUNT * 3);
-    const color = new THREE.Color();
 
     for (let i = 0; i < COUNT; i++) {
         let x, y, z;
@@ -22,7 +22,7 @@ const generateParticles = (shape: 'sphere' | 'mic' | 'brain' | 'wave') => {
         if (shape === 'sphere') {
             const theta = Math.random() * Math.PI * 2;
             const phi = Math.acos((Math.random() * 2) - 1);
-            const r = 2.5 + Math.random() * 0.1;
+            const r = 2.5 + Math.random() * 0.2; // Slight thickness
             x = r * Math.sin(phi) * Math.cos(theta);
             y = r * Math.sin(phi) * Math.sin(theta);
             z = r * Math.cos(phi);
@@ -78,18 +78,29 @@ const generateParticles = (shape: 'sphere' | 'mic' | 'brain' | 'wave') => {
 
 const Particles = ({ state, audioLevel }: { state: string, audioLevel: number }) => {
     const points = useRef<THREE.Points>(null!);
+
+    // Immutable target shapes
     const spherePos = useMemo(() => generateParticles('sphere'), []);
     const micPos = useMemo(() => generateParticles('mic'), []);
     const brainPos = useMemo(() => generateParticles('brain'), []);
     const wavePos = useMemo(() => generateParticles('wave'), []);
 
-    // Buffer attributes
-    const geometryRef = useRef<THREE.BufferGeometry>(null!);
+    // Random offsets for noise transition
+    const noiseOffsets = useMemo(() => {
+        const arr = new Float32Array(COUNT * 3);
+        for (let i = 0; i < arr.length; i++) arr[i] = (Math.random() - 0.5) * 4;
+        return arr;
+    }, []);
 
-    // Current positions array (mutable)
+    const geometryRef = useRef<THREE.BufferGeometry>(null!);
     const currentPositions = useMemo(() => new Float32Array(COUNT * 3), []);
 
-    // Initialize current positions to sphere
+    // We keep track of "current visual state" to detect transitions
+    const prevState = useRef(state);
+    const transitionProgress = useRef(0); // 0 to 1
+    const isTransitioning = useRef(false);
+
+    // Initialize
     useEffect(() => {
         currentPositions.set(spherePos);
         if (geometryRef.current) {
@@ -97,11 +108,18 @@ const Particles = ({ state, audioLevel }: { state: string, audioLevel: number })
         }
     }, []);
 
-    useFrame(() => {
+    useFrame((_, delta) => {
         if (!points.current) return;
 
         let target: Float32Array;
         let speed = 0.05;
+
+        // Detect state change
+        if (state !== prevState.current) {
+            isTransitioning.current = true;
+            transitionProgress.current = 0;
+            prevState.current = state;
+        }
 
         // Determine target shape
         if (state === 'listening') {
@@ -118,9 +136,23 @@ const Particles = ({ state, audioLevel }: { state: string, audioLevel: number })
             speed = 0.05;
         }
 
-        const positions = points.current.geometry.attributes.position.array as Float32Array;
+        // Handle Transition Impulse (Noise burst)
+        let noiseFactor = 0;
+        if (isTransitioning.current) {
+            transitionProgress.current += delta * 2; // Transition takes ~0.5s
 
-        // Lerp positions
+            // Parabola: 0 -> 1 -> 0
+            // x from 0 to 1. y = 4x(1-x). Peak at 0.5 is 1.
+            const t = Math.min(transitionProgress.current, 1);
+            noiseFactor = 4 * t * (1 - t) * 0.5; // Max noise multiplier 0.5
+
+            if (transitionProgress.current >= 1) {
+                isTransitioning.current = false;
+                noiseFactor = 0;
+            }
+        }
+
+        const positions = points.current.geometry.attributes.position.array as Float32Array;
         const time = Date.now() * 0.001;
 
         for (let i = 0; i < COUNT; i++) {
@@ -132,37 +164,48 @@ const Particles = ({ state, audioLevel }: { state: string, audioLevel: number })
             let ty = target[iy];
             let tz = target[iz];
 
-            // Add dynamic movement
+            // Add dynamic movement specific to state
             if (state === 'playing') {
-                // Animate wave
-                // Re-calculate wave Y based on time
+                // Wave Animation
                 ty = Math.sin(tx * 0.8 + time * 5) * Math.cos(tz * 0.8 + time * 3) * (1.5 + audioLevel * 2);
             } else if (state === 'processing') {
-                // Pulse brain
-                tx = tx * (1 + Math.sin(time * 3) * 0.02);
-                ty = ty * (1 + Math.sin(time * 3) * 0.02);
-                tz = tz * (1 + Math.sin(time * 3) * 0.02);
+                // Pulse Brain
+                const pulse = 1 + Math.sin(time * 3) * 0.02;
+                tx *= pulse; ty *= pulse; tz *= pulse;
             } else if (state === 'listening') {
-                // Vibrate mic slightly
+                // Mic Vibrate
                 tx += (Math.random() - 0.5) * 0.01;
             } else {
-                // Breathing sphere
+                // Breathing Sphere
                 const scale = 1 + Math.sin(time) * 0.05;
-                tx *= scale;
-                ty *= scale;
-                tz *= scale;
+                tx *= scale; ty *= scale; tz *= scale;
             }
 
+            // Apply Transition Noise ("Scattering Effect")
+            if (noiseFactor > 0) {
+                tx += noiseOffsets[ix] * noiseFactor;
+                ty += noiseOffsets[iy] * noiseFactor;
+                tz += noiseOffsets[iz] * noiseFactor;
+            }
+
+            // Lerp towards target
             positions[ix] += (tx - positions[ix]) * speed;
             positions[iy] += (ty - positions[iy]) * speed;
             positions[iz] += (tz - positions[iz]) * speed;
         }
 
         points.current.geometry.attributes.position.needsUpdate = true;
-
-        // Rotate entire system slowly
         points.current.rotation.y += 0.002;
     });
+
+    const pointColor = useMemo(() => {
+        switch (state) {
+            case 'listening': return '#ef4444'; // Red
+            case 'playing': return '#22d3ee'; // Cyan
+            case 'processing': return '#a855f7'; // Purple
+            default: return '#0ea5e9'; // Sky Blue
+        }
+    }, [state]);
 
     return (
         <points ref={points}>
@@ -174,11 +217,16 @@ const Particles = ({ state, audioLevel }: { state: string, audioLevel: number })
                     itemSize={3}
                 />
             </bufferGeometry>
+            {/* 
+               IMPORTANT: Use standard pointsMaterial but tweaked for Bloom.
+               Bloom glows when color values > 1.0 (HDR). 
+               We simply use a bright color, post-processing handles the rest.
+            */}
             <pointsMaterial
-                size={0.15}
-                color={state === 'listening' ? '#ef4444' : state === 'playing' ? '#22d3ee' : state === 'processing' ? '#a855f7' : '#06b6d4'}
+                size={0.08} // Smaller points for higher resolution feel
+                color={pointColor}
                 transparent
-                opacity={0.8}
+                opacity={0.9}
                 sizeAttenuation
                 blending={THREE.AdditiveBlending}
                 depthWrite={false}
@@ -189,9 +237,20 @@ const Particles = ({ state, audioLevel }: { state: string, audioLevel: number })
 
 export default function ParticleOrb({ state, audioLevel }: ParticleOrbProps) {
     return (
-        <div className="w-[400px] h-[400px] relative">
-            <Canvas camera={{ position: [0, 0, 8], fov: 60 }} gl={{ antialias: true, alpha: true }}>
+        <div className="w-[300px] h-[300px] md:w-[450px] md:h-[450px] relative transition-all duration-500">
+            <Canvas camera={{ position: [0, 0, 9], fov: 60 }} gl={{ antialias: true, alpha: true }}>
                 <Particles state={state} audioLevel={audioLevel} />
+                <OrbitControls enableZoom={false} enablePan={false} autoRotate={false} />
+
+                {/* Post-Processing Pipeline */}
+                <EffectComposer>
+                    <Bloom
+                        luminanceThreshold={0.2}
+                        mipmapBlur
+                        intensity={1.5}
+                        radius={0.6}
+                    />
+                </EffectComposer>
             </Canvas>
         </div>
     );

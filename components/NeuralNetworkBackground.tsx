@@ -1,23 +1,14 @@
+
 import React, { useEffect, useRef } from 'react';
 
-interface NeuralNetworkBackgroundProps {
-    active: boolean;
-}
-
-interface Particle {
-    x: number;
-    y: number;
-    vx: number;
-    vy: number;
-    radius: number;
-    alpha: number;
-}
-
-const NeuralNetworkBackground: React.FC<NeuralNetworkBackgroundProps> = ({ active }) => {
+const NeuralNetworkBackground = ({ active, audioLevel = 0 }: { active: boolean, audioLevel?: number }) => {
     const canvasRef = useRef<HTMLCanvasElement>(null);
-    const particlesRef = useRef<Particle[]>([]);
-    const frameRef = useRef<number>(0);
-    const dimensionsRef = useRef({ width: 0, height: 0 });
+    const audioLevelRef = useRef(audioLevel);
+
+    // Keep ref updated without re-running effect
+    useEffect(() => {
+        audioLevelRef.current = audioLevel;
+    }, [audioLevel]);
 
     useEffect(() => {
         const canvas = canvasRef.current;
@@ -26,131 +17,110 @@ const NeuralNetworkBackground: React.FC<NeuralNetworkBackgroundProps> = ({ activ
         const ctx = canvas.getContext('2d');
         if (!ctx) return;
 
-        const resize = () => {
-            canvas.width = window.innerWidth;
-            canvas.height = window.innerHeight;
-            dimensionsRef.current = { width: canvas.width, height: canvas.height };
-            initParticles();
-        };
+        let width = (canvas.width = window.innerWidth);
+        let height = (canvas.height = window.innerHeight);
 
-        const initParticles = () => {
-            const pCount = Math.floor((window.innerWidth * window.innerHeight) / 15000); // Density
-            particlesRef.current = [];
-            for (let i = 0; i < pCount; i++) {
-                particlesRef.current.push({
-                    x: Math.random() * canvas.width,
-                    y: Math.random() * canvas.height,
-                    vx: (Math.random() - 0.5) * 0.5,
-                    vy: (Math.random() - 0.5) * 0.5,
-                    radius: Math.random() * 2 + 1,
-                    alpha: Math.random() * 0.5 + 0.1,
-                });
-            }
-        };
+        const particles: Particle[] = [];
+        const particleCount = 60;
+        const connectionDistance = 150;
 
-        const draw = () => {
-            if (!ctx || !canvas) return;
+        class Particle {
+            x: number;
+            y: number;
+            vx: number;
+            vy: number;
+            size: number;
 
-            // Clear with fading trail if active, else clean clear
-            ctx.fillStyle = active ? 'rgba(0, 0, 0, 0.2)' : 'rgba(0, 0, 0, 1)';
-            ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-            // If inactive, we might stop rendering or render very dimly. 
-            // User asked for this "When the user speaks". So maybe 0 alpha when not active or just don't render.
-            // But a smooth transition is better.
-            const masterAlpha = active ? 1 : 0;
-
-            if (masterAlpha <= 0.01) {
-                // just clear and return to save resources if completely invisible
-                ctx.clearRect(0, 0, canvas.width, canvas.height);
-                frameRef.current = requestAnimationFrame(draw);
-                return;
+            constructor() {
+                this.x = Math.random() * width;
+                this.y = Math.random() * height;
+                this.vx = (Math.random() - 0.5) * 0.5;
+                this.vy = (Math.random() - 0.5) * 0.5;
+                this.size = Math.random() * 2 + 1;
             }
 
-            const particles = particlesRef.current;
+            update() {
+                // Access latest audio level from ref
+                const level = audioLevelRef.current;
+                const speedMultiplier = 1 + (level * 5);
 
-            // Update and draw particles
-            particles.forEach((p, i) => {
-                // Move
-                if (active) {
-                    // Magnetic Singularity
-                    const cx = canvas.width / 2;
-                    const cy = canvas.height / 2;
-                    const dx = cx - p.x;
-                    const dy = cy - p.y;
-                    const dist = Math.sqrt(dx * dx + dy * dy) || 1;
+                this.x += this.vx * speedMultiplier;
+                this.y += this.vy * speedMultiplier;
 
-                    // Pull towards center + Swirl
-                    const pullSpeed = 3;
-                    p.x += (dx / dist) * pullSpeed;
-                    p.y += (dy / dist) * pullSpeed;
+                if (this.x < 0 || this.x > width) this.vx *= -1;
+                if (this.y < 0 || this.y > height) this.vy *= -1;
+            }
 
-                    // Swirl (Tangent)
-                    p.x -= (dy / dist) * 1;
-                    p.y += (dx / dist) * 1;
+            draw() {
+                if (!ctx) return;
+                const level = audioLevelRef.current;
 
-                    // Respawn if sucked in
-                    if (dist < 50) {
-                        const angle = Math.random() * Math.PI * 2;
-                        const radius = Math.max(canvas.width, canvas.height) * 0.7;
-                        p.x = cx + Math.cos(angle) * radius;
-                        p.y = cy + Math.sin(angle) * radius;
-                    }
-                } else {
-                    p.x += p.vx * 0.5;
-                    p.y += p.vy * 0.5;
-
-                    // Bounce
-                    if (p.x < 0 || p.x > canvas.width) p.vx *= -1;
-                    if (p.y < 0 || p.y > canvas.height) p.vy *= -1;
-                }
-
-                // Draw Dot
                 ctx.beginPath();
-                ctx.arc(p.x, p.y, p.radius, 0, Math.PI * 2);
-                ctx.fillStyle = `rgba(34, 211, 238, ${p.alpha * masterAlpha})`; // Cyan cyan-400
+                ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2);
+                ctx.fillStyle = active
+                    ? `rgba(34, 211, 238, ${0.5 + level})`
+                    : `rgba(255, 255, 255, 0.2)`;
                 ctx.fill();
-            });
+            }
+        }
 
-            // Draw Connections
-            for (let i = 0; i < particles.length; i++) {
-                for (let j = i + 1; j < particles.length; j++) {
-                    const p1 = particles[i];
-                    const p2 = particles[j];
-                    const dx = p1.x - p2.x;
-                    const dy = p1.y - p2.y;
+        for (let i = 0; i < particleCount; i++) {
+            particles.push(new Particle());
+        }
+
+        const animate = () => {
+            if (!ctx) return;
+            ctx.clearRect(0, 0, width, height);
+
+            const level = audioLevelRef.current;
+
+            particles.forEach((particle, i) => {
+                particle.update();
+                particle.draw();
+
+                for (let j = i; j < particles.length; j++) {
+                    const dx = particles[j].x - particle.x;
+                    const dy = particles[j].y - particle.y;
                     const distance = Math.sqrt(dx * dx + dy * dy);
 
-                    if (distance < 150) {
+                    if (distance < connectionDistance) {
                         ctx.beginPath();
-                        ctx.strokeStyle = `rgba(34, 211, 238, ${(1 - distance / 150) * 0.2 * masterAlpha})`;
-                        ctx.lineWidth = 0.5;
-                        ctx.moveTo(p1.x, p1.y);
-                        ctx.lineTo(p2.x, p2.y);
+
+                        const opacity = (1 - distance / connectionDistance) * (0.15 + (level * 0.5));
+
+                        ctx.strokeStyle = active
+                            ? `rgba(34, 211, 238, ${opacity})`
+                            : `rgba(255, 255, 255, ${opacity * 0.5})`;
+
+                        ctx.lineWidth = 1;
+                        ctx.moveTo(particle.x, particle.y);
+                        ctx.lineTo(particles[j].x, particles[j].y);
                         ctx.stroke();
                     }
                 }
-            }
+            });
 
-            frameRef.current = requestAnimationFrame(draw);
+            requestAnimationFrame(animate);
         };
 
-        window.addEventListener('resize', resize);
-        resize();
-        draw();
+        const animationId = requestAnimationFrame(animate);
+
+        const handleResize = () => {
+            width = canvas.width = window.innerWidth;
+            height = canvas.height = window.innerHeight;
+            // Re-init particles on drastic resize? Or just let them be.
+            // For simplicity, we just update bounds. Existing particles might eventually float back or we can clamp them.
+        };
+
+        window.addEventListener('resize', handleResize);
 
         return () => {
-            window.removeEventListener('resize', resize);
-            cancelAnimationFrame(frameRef.current);
+            cancelAnimationFrame(animationId);
+            window.removeEventListener('resize', handleResize);
         };
-    }, [active]);
+    }, [active]); // Only re-init if 'active' toggles
 
-    return (
-        <canvas
-            ref={canvasRef}
-            className={`absolute inset-0 z-0 pointer-events-none transition-opacity duration-1000 ${active ? 'opacity-100' : 'opacity-0'}`}
-        />
-    );
+    return <canvas ref={canvasRef} className="absolute inset-0 z-0" />;
 };
 
 export default NeuralNetworkBackground;
